@@ -1,0 +1,54 @@
+const path = require("path");
+const { loadApiConfig } = require("../generator/config");
+
+function main() {
+  const projectRoot = path.resolve(__dirname, "../..");
+  const configPath = path.join(projectRoot, "api.config.yaml");
+
+  try {
+    const config = loadApiConfig(configPath);
+
+    console.log("api.config.yaml is valid.\n");
+    console.log(`Resources: ${config.resources.length}`);
+
+    for (const resource of config.resources) {
+      console.log(`\n- ${resource.name}`);
+      console.log(`  path: ${resource.path}`);
+      console.log(`  operations: ${resource.operations.join(", ")}`);
+      console.log(`  fields: ${resource.fields.map((field) => `${field.name}:${field.type}`).join(", ")}`);
+      const authSummary = resource.operations
+        .map((operation) => `${operation}=${resource.auth[operation]}`)
+        .join(", ");
+      console.log(
+        `  auth: ${authSummary}`
+      );
+
+      if (resource.shareable) {
+        console.log("  sharing: enabled");
+      }
+      if (resource.ownershipEnabled) {
+        console.log("  ownership: owner_id will be added automatically");
+      }
+      if (resource.relations.length > 0) {
+        console.log(
+          `  relations: ${resource.relations
+            .map((relation) => `${relation.name}(${relation.kind} -> ${relation.targetResource})`)
+            .join(", ")}`
+        );
+      }
+      if (Object.keys(resource.views || {}).length > 0) {
+        console.log(`  views: ${Object.keys(resource.views).join(", ")}`);
+      }
+    }
+
+    console.log("\nBuilt-in resources:");
+    console.log("- users table and auth endpoints are provided automatically");
+    console.log("- the global shares table is provided automatically for shareable resources");
+  } catch (error) {
+    console.error("api.config.yaml is invalid.\n");
+    console.error(error.message);
+    process.exit(1);
+  }
+}
+
+main();

@@ -1,0 +1,48 @@
+resources:
+  - name: genres
+    path: /api/genres
+    operations: [list, retrieve, create, delete]
+    fields:
+      - name: label
+        type: string
+        required: true
+    auth:
+      list: public
+      retrieve: public
+
+  - name: books
+    path: /api/books
+    operations: [list, retrieve, create, update, delete]
+    shareable: true
+    fields:
+      - name: title
+        type: string
+        required: true
+      - name: description
+        type: text
+      - name: author
+        type: string
+      - name: in_stock
+        type: boolean
+      - name: price
+        type: number
+    relations:
+      - name: genre
+        kind: belongsTo
+        localField: genre_id
+        targetResource: genres
+        targetField: id
+    views:
+      summary:
+        fields: [id, title, description, author, in_stock, price, genre]
+      detail:
+        fields: [id, title, description, author, in_stock, price, genre]
+        include:
+          - relation: genre
+            view: summary
+    auth:
+      list: owner_or_shared
+      retrieve: owner_or_shared
+      create: user
+      update: owner
+      delete: owner
