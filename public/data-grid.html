@@ -35,20 +35,7 @@
 
       <p id="auth-message" class="status" aria-live="polite"></p>
 
-      <!-- <header class="data-header">
-        <div>
-          
-          <p>
-            Browse public resources or log in to work with protected data. <a href="/">Home</a> ·
-            <a href="/api/docs">API docs</a>
-          </p>
-        </div>
-      </header> -->
-
         <div class="toolbar" id="resource-controls">
-            <header class="data-header">
-                <h1>Data spreadsheet</h1>
-            </header>
             <div class="toolbar-content">
                 <label>
                 Resource
@@ -56,8 +43,22 @@
                     <option value="">Loading…</option>
                 </select>
                 </label>
+                <label id="view-toggle">
+                View
+                <select id="view-mode-select" aria-label="Choose data view">
+                    <option value="spreadsheet">Spreadsheet view</option>
+                    <option value="json">JSON view</option>
+                </select>
+                </label>
                 <button type="button" id="refresh-btn" class="button ghost small">Refresh</button>
                 <button type="button" id="add-row-btn" class="button primary small">Add row</button>
+            </div>
+            <div class="filter-bar" id="filter-controls" hidden>
+                <div class="filter-fields" id="filter-fields"></div>
+                <div class="filter-actions">
+                    <button type="button" id="apply-filters-btn" class="button ghost small">Apply filters</button>
+                    <button type="button" id="clear-filters-btn" class="button ghost small">Clear</button>
+                </div>
             </div>
         </div>
 
@@ -65,6 +66,9 @@
 
       <div id="grid-wrap">
         <div id="data-table"></div>
+      </div>
+      <div id="json-wrap" hidden>
+        <pre id="json-view" class="json-view-panel">[]</pre>
       </div>
     </main>
 

@@ -33,6 +33,8 @@ function dependencyOrder(resources) {
 function sampleValueForField(field, rowIndex) {
   const n = rowIndex + 1;
   switch (field.type) {
+    case "image_url":
+      return `https://picsum.photos/300/300?id=${n}`;
     case "string":
       return `Sample ${field.name} ${n}`;
     case "text":

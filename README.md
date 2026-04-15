@@ -69,6 +69,47 @@ This checks:
 
 If the config is valid, the validator prints a short summary of the resources and the built-in framework features that are added automatically.
 
+### Query Filters
+
+List endpoints can expose query parameters for selected fields and relations.
+
+Use `query: true` for the default behavior:
+
+```yaml
+fields:
+  - name: title
+    type: string
+    query: true
+
+relations:
+  - name: photo
+    references: photos
+    query: true
+```
+
+Defaults:
+
+- `string`, `text`, and `image_url` use `contains`
+- `boolean`, `integer`, `number`, `date`, `datetime`, and relation foreign keys use `eq`
+- ownership-enabled resources also support `owner_id` automatically with exact matching
+
+You can also use the object form to customize the param name or op:
+
+```yaml
+fields:
+  - name: title
+    type: string
+    query:
+      param: q
+      op: contains
+```
+
+Examples:
+
+- `GET /api/photos?title=sunset`
+- `GET /api/comments?photo_id=3`
+- `GET /api/comments?owner_id=1`
+
 ## Generate the API
 
 ```bash

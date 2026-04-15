@@ -17,7 +17,13 @@ function buildCrudRouter(db, resource, resourceMap) {
         return;
       }
 
-      const rows = listRows(db, resource, req.user);
+      const { filters, error } = buildQueryFilters(resource, req.query);
+      if (error) {
+        res.status(400).json({ error });
+        return;
+      }
+
+      const rows = listRows(db, resource, req.user, filters);
       const payload = rows.map((row) => shapeRecord(db, resourceMap, resource, row));
       res.json(payload);
     });
@@ -254,32 +260,140 @@ function buildCrudRouter(db, resource, resourceMap) {
   return router;
 }
 
-function listRows(db, resource, user) {
-  const baseQuery = `SELECT DISTINCT t.* FROM ${resource.tableName} t`;
+function listRows(db, resource, user, filters = []) {
+  const params = [];
+  const whereClauses = [];
+  let joinSql = "";
+
   switch (resource.permissions.list) {
     case "public":
-      return db.prepare(`SELECT * FROM ${resource.tableName} ORDER BY id DESC`).all();
     case "user":
-      return db.prepare(`SELECT * FROM ${resource.tableName} ORDER BY id DESC`).all();
+      break;
     case "owner":
-      return db
-        .prepare(`SELECT * FROM ${resource.tableName} WHERE owner_id = ? ORDER BY id DESC`)
-        .all(user.sub);
+      whereClauses.push("t.owner_id = ?");
+      params.push(user.sub);
+      break;
     case "owner_or_shared":
-      return db
-        .prepare(
-          `${baseQuery}
-           LEFT JOIN shares s
-             ON s.resource_type = ?
-            AND s.resource_id = t.id
-            AND s.shared_with_user_id = ?
-           WHERE t.owner_id = ? OR s.shared_with_user_id = ?
-           ORDER BY t.id DESC`
-        )
-        .all(resource.name, user.sub, user.sub, user.sub);
+      joinSql = `
+        LEFT JOIN shares s
+          ON s.resource_type = ?
+         AND s.resource_id = t.id
+         AND s.shared_with_user_id = ?`;
+      params.push(resource.name, user.sub);
+      whereClauses.push("(t.owner_id = ? OR s.shared_with_user_id = ?)");
+      params.push(user.sub, user.sub);
+      break;
     default:
       return [];
   }
+
+  for (const filter of filters) {
+    const condition = sqlConditionForFilter(filter);
+    if (!condition) {
+      continue;
+    }
+    whereClauses.push(condition.sql);
+    params.push(...condition.params);
+  }
+
+  const sql = [
+    `SELECT DISTINCT t.* FROM ${resource.tableName} t`,
+    joinSql,
+    whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "",
+    "ORDER BY t.id DESC",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return db.prepare(sql).all(...params);
+}
+
+function buildQueryFilters(resource, rawQuery) {
+  const filters = [];
+  for (const filter of resource.queryFilters || []) {
+    if (!Object.prototype.hasOwnProperty.call(rawQuery, filter.param)) {
+      continue;
+    }
+    const rawValue = rawQuery[filter.param];
+    if (Array.isArray(rawValue)) {
+      return {
+        filters: [],
+        error: `Query parameter \`${filter.param}\` must be provided once.`,
+      };
+    }
+
+    const parsed = parseQueryValue(filter, rawValue);
+    if (parsed.skip) {
+      continue;
+    }
+    if (parsed.error) {
+      return {
+        filters: [],
+        error: `Query parameter \`${filter.param}\` ${parsed.error}`,
+      };
+    }
+
+    filters.push({
+      fieldName: filter.fieldName,
+      op: filter.op,
+      value: parsed.value,
+    });
+  }
+
+  return { filters, error: null };
+}
+
+function parseQueryValue(field, rawValue) {
+  const value = String(rawValue ?? "").trim();
+  if (value === "") {
+    return { skip: true, value: null, error: null };
+  }
+
+  switch (field.type) {
+    case "boolean": {
+      const lower = value.toLowerCase();
+      if (lower === "true" || value === "1") {
+        return { skip: false, value: 1, error: null };
+      }
+      if (lower === "false" || value === "0") {
+        return { skip: false, value: 0, error: null };
+      }
+      return { skip: false, value: null, error: "must be `true`, `false`, `1`, or `0`." };
+    }
+    case "integer": {
+      if (!/^-?\d+$/.test(value)) {
+        return { skip: false, value: null, error: "must be an integer." };
+      }
+      return { skip: false, value: Number(value), error: null };
+    }
+    case "number": {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) {
+        return { skip: false, value: null, error: "must be a number." };
+      }
+      return { skip: false, value: parsed, error: null };
+    }
+    default:
+      return { skip: false, value, error: null };
+  }
+}
+
+function sqlConditionForFilter(filter) {
+  if (filter.op === "contains") {
+    return {
+      sql: `t.${filter.fieldName} LIKE ? ESCAPE '\\'`,
+      params: [`%${escapeLikeValue(filter.value)}%`],
+    };
+  }
+
+  return {
+    sql: `t.${filter.fieldName} = ?`,
+    params: [filter.value],
+  };
+}
+
+function escapeLikeValue(value) {
+  return String(value).replace(/[\\%_]/g, "\\$&");
 }
 
 function getAccessibleRow(db, resource, id, user, policy) {
@@ -323,46 +437,55 @@ function shapeRecord(db, resourceMap, resource, record, depth = 0) {
     return null;
   }
 
-  const creator = getCreatorUsername(db, resource, record);
-  const shaped = creator ? { ...record, creator } : { ...record };
+  const owner = getOwnerRecord(db, resource, record);
+  const shaped = { ...record };
+
+  if (resource.ownershipEnabled) {
+    delete shaped.owner_id;
+    delete shaped.creator;
+    shaped.owner = owner;
+  }
 
   if (depth > 0) {
     return shaped;
   }
 
-  for (const relation of resource.relations || []) {
-    if (!relation || relation.kind !== "belongsTo") {
+  for (const field of resource.fields || []) {
+    if (!field.references) {
       continue;
     }
 
-    const target = resourceMap.get(relation.targetResource);
+    const target = resourceMap.get(field.references.resource);
     if (!target) {
       continue;
     }
 
-    const foreignValue = record[relation.localField];
+    const foreignValue = record[field.name];
     if (foreignValue == null) {
-      shaped[relation.name] = null;
+      shaped[field.name] = null;
       continue;
     }
 
     const relatedRecord = db
-      .prepare(`SELECT * FROM ${target.tableName} WHERE ${relation.targetField || "id"} = ?`)
+      .prepare(`SELECT * FROM ${target.tableName} WHERE ${field.references.field || "id"} = ?`)
       .get(foreignValue);
 
-    shaped[relation.name] = shapeRecord(db, resourceMap, target, relatedRecord, depth + 1);
+    shaped[field.name] = shapeRecord(db, resourceMap, target, relatedRecord, depth + 1);
   }
 
   return shaped;
 }
 
-function getCreatorUsername(db, resource, record) {
+function getOwnerRecord(db, resource, record) {
   if (!resource.ownershipEnabled || record.owner_id == null) {
     return null;
   }
 
-  const owner = db.prepare("SELECT username FROM users WHERE id = ?").get(record.owner_id);
-  return owner?.username || null;
+  return (
+    db
+      .prepare("SELECT id, username, created_at FROM users WHERE id = ?")
+      .get(record.owner_id) || null
+  );
 }
 
 function validateBody(resource, body, partial) {
@@ -415,6 +538,7 @@ function normalizeValue(type, value) {
 function isValidType(type, value) {
   switch (type) {
     case "string":
+    case "image_url":
     case "text":
     case "date":
     case "datetime":

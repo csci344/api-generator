@@ -121,6 +121,7 @@ function buildDocs(config) {
         { method: "POST", path: "/auth/register" },
         { method: "POST", path: "/auth/login" },
         { method: "GET", path: "/auth/me" },
+        { method: "GET", path: "/auth/users" },
       ],
     },
     resources: config.resources.map((resource) => {
@@ -130,6 +131,7 @@ function buildDocs(config) {
           method: "GET",
           path: resource.path,
           permissions: resource.permissions.list,
+          query: buildDocsQueryParams(resource),
         });
       }
       if (resource.operations.includes("retrieve")) {
@@ -259,6 +261,26 @@ function buildOpenApi(config) {
         },
       },
     },
+    "/auth/users": {
+      get: {
+        tags: ["auth"],
+        summary: "List registered users",
+        security: [{ BearerAuth: [] }],
+        responses: {
+          200: {
+            description: "Users",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "array",
+                  items: { $ref: "#/components/schemas/CurrentUser" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
   };
 
   const components = {
@@ -334,6 +356,9 @@ function buildOpenApi(config) {
       paths[resource.path].get = {
         tags: [resource.name],
         summary: `List ${resource.name}`,
+        ...(buildOpenApiQueryParameters(resource).length > 0
+          ? { parameters: buildOpenApiQueryParameters(resource) }
+          : {}),
         responses: {
           200: {
             description: "List of records",
@@ -568,6 +593,7 @@ function sqlTypeForField(type) {
       return "INTEGER";
     case "date":
     case "datetime":
+    case "image_url":
     case "string":
     case "text":
     default:
@@ -595,30 +621,22 @@ function buildFullRecordSchema(resourceMap, resource, depth = 0) {
   };
 
   if (resource.ownershipEnabled) {
-    properties.owner_id = { type: "integer" };
-    properties.creator = { type: "string" };
+    properties.owner = { $ref: "#/components/schemas/CurrentUser" };
   }
 
   for (const field of resource.fields) {
-    properties[field.name] = openApiTypeForField(field.type);
-  }
-
-  if (depth === 0) {
-    for (const relation of resource.relations || []) {
-      if (relation.kind !== "belongsTo") {
-        continue;
-      }
-
-      const target = resourceMap.get(relation.targetResource);
-      if (!target) {
-        continue;
-      }
-
-      properties[relation.name] = {
-        ...buildFullRecordSchema(resourceMap, target, depth + 1),
-        nullable: true,
-      };
+    if (depth === 0 && field.references) {
+      const target = resourceMap.get(field.references.resource);
+      properties[field.name] = target
+        ? {
+            ...buildFullRecordSchema(resourceMap, target, depth + 1),
+            nullable: !field.required,
+          }
+        : openApiTypeForField(field.type);
+      continue;
     }
+
+    properties[field.name] = openApiTypeForField(field.type);
   }
 
   return {
@@ -635,6 +653,8 @@ function openApiTypeForField(type) {
       return { type: "number" };
     case "boolean":
       return { type: "boolean" };
+    case "image_url":
+      return { type: "string" };
     case "date":
       return { type: "string", format: "date" };
     case "datetime":
@@ -644,6 +664,28 @@ function openApiTypeForField(type) {
     default:
       return { type: "string" };
   }
+}
+
+function buildDocsQueryParams(resource) {
+  return (resource.queryFilters || []).map((filter) => ({
+    name: filter.param,
+    field: filter.fieldName,
+    op: filter.op,
+    type: filter.type,
+  }));
+}
+
+function buildOpenApiQueryParameters(resource) {
+  return (resource.queryFilters || []).map((filter) => ({
+      in: "query",
+      name: filter.param,
+      required: false,
+      schema: openApiTypeForField(filter.type),
+      description:
+        filter.op === "contains"
+          ? `Filter ${resource.name} by ${filter.fieldName} using a partial text match.`
+          : `Filter ${resource.name} by ${filter.fieldName} using an exact match.`,
+    }));
 }
 
 function pascalCase(value) {

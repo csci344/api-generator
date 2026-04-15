@@ -36,6 +36,13 @@ function main() {
             .join(", ")}`
         );
       }
+      if ((resource.queryFilters || []).length > 0) {
+        console.log(
+          `  query: ${resource.queryFilters
+            .map((filter) => `${filter.param} -> ${filter.fieldName} (${filter.op})`)
+            .join(", ")}`
+        );
+      }
       if (Object.keys(resource.views || {}).length > 0) {
         console.log(`  views: ${Object.keys(resource.views).join(", ")}`);
       }

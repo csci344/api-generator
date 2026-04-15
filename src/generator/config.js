@@ -4,6 +4,7 @@ const YAML = require("yaml");
 
 const ALLOWED_TYPES = new Set([
   "string",
+  "image_url",
   "text",
   "integer",
   "number",
@@ -99,6 +100,12 @@ function normalizeConfig(config, configPath) {
         type: field.type,
         required: Boolean(field.required),
         references: field.references || null,
+        query: normalizeQueryConfig(field.query, {
+          resourceName: resource.name,
+          subjectLabel: `field \`${resource.name}.${field.name}\``,
+          type: field.type,
+          defaultParam: field.name,
+        }),
       };
     });
 
@@ -158,6 +165,7 @@ function normalizeConfig(config, configPath) {
       fields,
       relations: normalizeRelations(resource),
       permissions,
+      queryFilters: [],
     };
   });
 
@@ -215,6 +223,15 @@ function normalizeConfig(config, configPath) {
         field: relation.targetField || "id",
       };
       if (existing) {
+        existing.required = existing.required || relation.required;
+        if (relation.query) {
+          if (existing.query && !sameQueryConfig(existing.query, relation.query)) {
+            throw new Error(
+              `Relation \`${resource.name}.${relation.name}\` conflicts with field \`${resource.name}.${local}\` query settings.`
+            );
+          }
+          existing.query ||= relation.query;
+        }
         if (!existing.references) {
           existing.references = ref;
         }
@@ -222,11 +239,14 @@ function normalizeConfig(config, configPath) {
         resource.fields.push({
           name: local,
           type: "integer",
-          required: false,
+          required: Boolean(relation.required),
           references: ref,
+          query: relation.query || null,
         });
       }
     }
+
+    resource.queryFilters = buildResourceQueryFilters(resource);
   }
 
   return {
@@ -268,8 +288,122 @@ function normalizeRelations(resource) {
       localField,
       targetResource,
       targetField,
+      required: Boolean(relation.required),
+      query: normalizeQueryConfig(relation.query, {
+        resourceName: resource.name,
+        subjectLabel: `relation \`${resource.name}.${relation.name}\``,
+        type: "integer",
+        defaultParam: localField,
+        defaultOp: "eq",
+        allowedOps: new Set(["eq"]),
+      }),
     };
   });
+}
+
+function normalizeQueryConfig(queryConfig, options) {
+  if (queryConfig == null || queryConfig === false) {
+    return null;
+  }
+
+  let normalizedInput = {};
+  if (queryConfig === true) {
+    normalizedInput = {};
+  } else if (typeof queryConfig === "string") {
+    normalizedInput = { param: queryConfig };
+  } else if (typeof queryConfig === "object" && !Array.isArray(queryConfig)) {
+    normalizedInput = queryConfig;
+  } else {
+    throw new Error(
+      `${options.subjectLabel} has invalid \`query\` config. Use \`true\`, a param name string, or an object.`
+    );
+  }
+
+  const param = typeof normalizedInput.param === "string" && normalizedInput.param.trim()
+    ? normalizedInput.param.trim()
+    : options.defaultParam;
+  const allowedOps = options.allowedOps || allowedQueryOpsForType(options.type);
+  const op = typeof normalizedInput.op === "string" && normalizedInput.op.trim()
+    ? normalizedInput.op.trim()
+    : options.defaultOp || defaultQueryOpForType(options.type);
+
+  if (!allowedOps.has(op)) {
+    throw new Error(
+      `${options.subjectLabel} uses unsupported query op \`${op}\`. Allowed: ${[...allowedOps].join(", ")}.`
+    );
+  }
+
+  return { param, op };
+}
+
+function defaultQueryOpForType(type) {
+  switch (type) {
+    case "string":
+    case "text":
+    case "image_url":
+      return "contains";
+    default:
+      return "eq";
+  }
+}
+
+function allowedQueryOpsForType(type) {
+  switch (type) {
+    case "string":
+    case "text":
+    case "image_url":
+      return new Set(["contains", "eq"]);
+    default:
+      return new Set(["eq"]);
+  }
+}
+
+function sameQueryConfig(left, right) {
+  return left?.param === right?.param && left?.op === right?.op;
+}
+
+function buildResourceQueryFilters(resource) {
+  const queryFilters = [];
+  const seenParams = new Map();
+
+  for (const field of resource.fields) {
+    if (!field.query) {
+      continue;
+    }
+    const previous = seenParams.get(field.query.param);
+    if (previous && previous !== field.name) {
+      throw new Error(
+        `Resource \`${resource.name}\` reuses query param \`${field.query.param}\` for both \`${previous}\` and \`${field.name}\`.`
+      );
+    }
+    seenParams.set(field.query.param, field.name);
+    queryFilters.push({
+      param: field.query.param,
+      fieldName: field.name,
+      op: field.query.op,
+      type: field.type,
+      references: field.references || null,
+    });
+  }
+
+  if (resource.ownershipEnabled) {
+    const ownerParam = "owner_id";
+    const previous = seenParams.get(ownerParam);
+    if (previous) {
+      throw new Error(
+        `Resource \`${resource.name}\` reuses query param \`${ownerParam}\` for both \`${previous}\` and \`owner_id\`.`
+      );
+    }
+    queryFilters.push({
+      param: ownerParam,
+      fieldName: ownerParam,
+      op: "eq",
+      type: "integer",
+      references: null,
+    });
+  }
+
+  return queryFilters;
 }
 
 function toKebabCase(value) {

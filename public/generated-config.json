@@ -1,15 +1,15 @@
 {
   "meta": {
     "configPath": "api.config.yaml",
-    "generatedAt": "2026-04-15T13:58:55.289Z",
+    "generatedAt": "2026-04-15T16:23:11.112Z",
     "seedDir": "sample-data"
   },
   "resources": [
     {
-      "name": "photos",
-      "tableName": "photos",
-      "fileBase": "photos",
-      "path": "/api/photos",
+      "name": "sneakers",
+      "tableName": "sneakers",
+      "fileBase": "sneakers",
+      "path": "/api/sneakers",
       "operations": [
         "list",
         "retrieve",
@@ -21,22 +21,75 @@
       "ownershipEnabled": true,
       "fields": [
         {
-          "name": "title",
+          "name": "name",
           "type": "string",
           "required": true,
-          "references": null
+          "references": null,
+          "query": {
+            "param": "name",
+            "op": "contains"
+          }
+        },
+        {
+          "name": "brand",
+          "type": "string",
+          "required": true,
+          "references": null,
+          "query": {
+            "param": "brand",
+            "op": "contains"
+          }
+        },
+        {
+          "name": "price",
+          "type": "number",
+          "required": true,
+          "references": null,
+          "query": {
+            "param": "price",
+            "op": "eq"
+          }
         },
         {
           "name": "image_url",
-          "type": "string",
+          "type": "image_url",
           "required": true,
-          "references": null
+          "references": null,
+          "query": null
         },
         {
-          "name": "caption",
+          "name": "size",
+          "type": "integer",
+          "required": false,
+          "references": null,
+          "query": {
+            "param": "size",
+            "op": "eq"
+          }
+        },
+        {
+          "name": "condition",
+          "type": "string",
+          "required": false,
+          "references": null,
+          "query": null
+        },
+        {
+          "name": "is_available",
+          "type": "boolean",
+          "required": false,
+          "references": null,
+          "query": {
+            "param": "is_available",
+            "op": "eq"
+          }
+        },
+        {
+          "name": "description",
           "type": "text",
           "required": false,
-          "references": null
+          "references": null,
+          "query": null
         }
       ],
       "relations": [],
@@ -46,61 +99,57 @@
         "create": "user",
         "update": "owner",
         "delete": "owner"
-      }
-    },
-    {
-      "name": "comments",
-      "tableName": "comments",
-      "fileBase": "comments",
-      "path": "/api/comments",
-      "operations": [
-        "list",
-        "retrieve",
-        "create",
-        "update",
-        "delete"
-      ],
-      "shareable": false,
-      "ownershipEnabled": true,
-      "fields": [
+      },
+      "queryFilters": [
         {
-          "name": "body",
-          "type": "text",
-          "required": true,
+          "param": "name",
+          "fieldName": "name",
+          "op": "contains",
+          "type": "string",
           "references": null
         },
         {
-          "name": "photo_id",
-          "type": "integer",
-          "required": false,
-          "references": {
-            "resource": "photos",
-            "field": "id"
-          }
-        }
-      ],
-      "relations": [
+          "param": "brand",
+          "fieldName": "brand",
+          "op": "contains",
+          "type": "string",
+          "references": null
+        },
         {
-          "name": "photo",
-          "kind": "belongsTo",
-          "localField": "photo_id",
-          "targetResource": "photos",
-          "targetField": "id"
+          "param": "price",
+          "fieldName": "price",
+          "op": "eq",
+          "type": "number",
+          "references": null
+        },
+        {
+          "param": "size",
+          "fieldName": "size",
+          "op": "eq",
+          "type": "integer",
+          "references": null
+        },
+        {
+          "param": "is_available",
+          "fieldName": "is_available",
+          "op": "eq",
+          "type": "boolean",
+          "references": null
+        },
+        {
+          "param": "owner_id",
+          "fieldName": "owner_id",
+          "op": "eq",
+          "type": "integer",
+          "references": null
         }
-      ],
-      "permissions": {
-        "list": "public",
-        "retrieve": "public",
-        "create": "user",
-        "update": "owner",
-        "delete": "owner"
-      }
+      ]
     },
     {
-      "name": "bookmarks",
-      "tableName": "bookmarks",
-      "fileBase": "bookmarks",
-      "path": "/api/bookmarks",
+      "name": "favorites",
+      "tableName": "favorites",
+      "fileBase": "favorites",
+      "path": "/api/favorites",
       "operations": [
         "list",
         "retrieve",
@@ -115,34 +164,178 @@
           "name": "note",
           "type": "string",
           "required": false,
-          "references": null
+          "references": null,
+          "query": null
         },
         {
-          "name": "photo_id",
+          "name": "sneaker_id",
           "type": "integer",
-          "required": false,
+          "required": true,
           "references": {
-            "resource": "photos",
+            "resource": "sneakers",
             "field": "id"
+          },
+          "query": {
+            "param": "sneaker_id",
+            "op": "eq"
           }
         }
       ],
       "relations": [
         {
-          "name": "photo",
+          "name": "sneaker",
           "kind": "belongsTo",
-          "localField": "photo_id",
-          "targetResource": "photos",
-          "targetField": "id"
+          "localField": "sneaker_id",
+          "targetResource": "sneakers",
+          "targetField": "id",
+          "required": true,
+          "query": {
+            "param": "sneaker_id",
+            "op": "eq"
+          }
         }
       ],
       "permissions": {
-        "list": "public",
-        "retrieve": "public",
+        "list": "owner",
+        "retrieve": "owner",
         "create": "user",
         "update": "owner",
         "delete": "owner"
-      }
+      },
+      "queryFilters": [
+        {
+          "param": "sneaker_id",
+          "fieldName": "sneaker_id",
+          "op": "eq",
+          "type": "integer",
+          "references": {
+            "resource": "sneakers",
+            "field": "id"
+          }
+        },
+        {
+          "param": "owner_id",
+          "fieldName": "owner_id",
+          "op": "eq",
+          "type": "integer",
+          "references": null
+        }
+      ]
+    },
+    {
+      "name": "orders",
+      "tableName": "orders",
+      "fileBase": "orders",
+      "path": "/api/orders",
+      "operations": [
+        "list",
+        "retrieve",
+        "create",
+        "update",
+        "delete"
+      ],
+      "shareable": false,
+      "ownershipEnabled": true,
+      "fields": [
+        {
+          "name": "customer_name",
+          "type": "string",
+          "required": true,
+          "references": null,
+          "query": null
+        },
+        {
+          "name": "email",
+          "type": "string",
+          "required": true,
+          "references": null,
+          "query": null
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "required": true,
+          "references": null,
+          "query": {
+            "param": "status",
+            "op": "contains"
+          }
+        },
+        {
+          "name": "total",
+          "type": "number",
+          "required": true,
+          "references": null,
+          "query": null
+        },
+        {
+          "name": "created_at",
+          "type": "datetime",
+          "required": false,
+          "references": null,
+          "query": null
+        },
+        {
+          "name": "sneaker_id",
+          "type": "integer",
+          "required": true,
+          "references": {
+            "resource": "sneakers",
+            "field": "id"
+          },
+          "query": {
+            "param": "sneaker_id",
+            "op": "eq"
+          }
+        }
+      ],
+      "relations": [
+        {
+          "name": "sneaker",
+          "kind": "belongsTo",
+          "localField": "sneaker_id",
+          "targetResource": "sneakers",
+          "targetField": "id",
+          "required": true,
+          "query": {
+            "param": "sneaker_id",
+            "op": "eq"
+          }
+        }
+      ],
+      "permissions": {
+        "list": "owner",
+        "retrieve": "owner",
+        "create": "user",
+        "update": "owner",
+        "delete": "owner"
+      },
+      "queryFilters": [
+        {
+          "param": "status",
+          "fieldName": "status",
+          "op": "contains",
+          "type": "string",
+          "references": null
+        },
+        {
+          "param": "sneaker_id",
+          "fieldName": "sneaker_id",
+          "op": "eq",
+          "type": "integer",
+          "references": {
+            "resource": "sneakers",
+            "field": "id"
+          }
+        },
+        {
+          "param": "owner_id",
+          "fieldName": "owner_id",
+          "op": "eq",
+          "type": "integer",
+          "references": null
+        }
+      ]
     }
   ]
 }

@@ -100,6 +100,13 @@ function registerAuthRoutes(app, db) {
       .get(req.user.sub);
     res.json(user);
   });
+
+  app.get("/auth/users", requireAuth, (_req, res) => {
+    const users = db
+      .prepare("SELECT id, username, created_at FROM users ORDER BY username ASC")
+      .all();
+    res.json(users);
+  });
 }
 
 function readBearerToken(req) {

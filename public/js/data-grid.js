@@ -13,8 +13,13 @@
     table: null,
     resource: null,
     fkOptions: {},
+    userOptions: [],
     visibleResources: [],
     currentUser: null,
+    loadedRows: [],
+    loadedRowsRaw: [],
+    viewMode: "spreadsheet",
+    filterValuesByResource: {},
   };
 
   function updateRowQuietly(row, data) {
@@ -254,6 +259,11 @@
     }
     state.resource = null;
     state.fkOptions = {};
+    state.userOptions = [];
+    state.loadedRows = [];
+    state.loadedRowsRaw = [];
+    renderFilterControls(null);
+    renderJsonView();
   }
 
   function populateResourceSelect(preferredValue = "") {
@@ -302,8 +312,11 @@
     const logoutBtn = document.getElementById("logout-btn");
     const resourceControls = document.getElementById("resource-controls");
     const gridWrap = document.getElementById("grid-wrap");
+    const jsonWrap = document.getElementById("json-wrap");
     const refreshBtn = document.getElementById("refresh-btn");
     const addRowBtn = document.getElementById("add-row-btn");
+    const viewToggle = document.getElementById("view-toggle");
+    const filterControls = document.getElementById("filter-controls");
 
     if (loginForm) {
       loginForm.hidden = loggedIn;
@@ -314,14 +327,15 @@
     if (resourceControls) {
       resourceControls.hidden = !loggedIn;
     }
-    if (gridWrap) {
-      gridWrap.hidden = !loggedIn;
+    if (viewToggle) {
+      viewToggle.hidden = !loggedIn;
     }
+    if (filterControls) {
+      filterControls.hidden = !loggedIn || !state.resource || getQueryFilters(state.resource).length === 0;
+    }
+    updateViewModeUi({ loggedIn, gridWrap, jsonWrap, addRowBtn });
     if (refreshBtn) {
       refreshBtn.hidden = visibleResources.length === 0;
-    }
-    if (addRowBtn) {
-      addRowBtn.hidden = !loggedIn;
     }
 
     if (loggedIn) {
@@ -339,6 +353,224 @@
     }
 
     return selected;
+  }
+
+  function updateViewModeUi(elements = {}) {
+    const loggedIn = elements.loggedIn ?? Boolean(getToken());
+    const gridWrap = elements.gridWrap || document.getElementById("grid-wrap");
+    const jsonWrap = elements.jsonWrap || document.getElementById("json-wrap");
+    const addRowBtn = elements.addRowBtn || document.getElementById("add-row-btn");
+    const viewModeSelect = document.getElementById("view-mode-select");
+    const showJson = loggedIn && state.viewMode === "json";
+    const showSpreadsheet = loggedIn && state.viewMode !== "json";
+
+    if (gridWrap) {
+      gridWrap.hidden = !showSpreadsheet;
+    }
+    if (jsonWrap) {
+      jsonWrap.hidden = !showJson;
+    }
+    if (addRowBtn) {
+      addRowBtn.hidden = !loggedIn || state.viewMode === "json";
+    }
+    if (viewModeSelect) {
+      viewModeSelect.value = state.viewMode;
+    }
+    if (showJson) {
+      renderJsonView();
+    }
+  }
+
+  function setViewMode(mode) {
+    state.viewMode = mode === "json" ? "json" : "spreadsheet";
+    updateViewModeUi();
+  }
+
+  function renderJsonView() {
+    const el = document.getElementById("json-view");
+    if (!el) {
+      return;
+    }
+    el.textContent = JSON.stringify(state.loadedRowsRaw, null, 2);
+  }
+
+  function getRowsForDisplay() {
+    if (state.table) {
+      return state.table.getData().map(cleanRowForDisplay);
+    }
+    return state.loadedRows.map(cleanRowForDisplay);
+  }
+
+  function setLoadedRowsFromApi(resource, rows) {
+    state.loadedRowsRaw = Array.isArray(rows) ? rows : [];
+    state.loadedRows = state.loadedRowsRaw.map((row) => normalizeRow(resource, row));
+    renderJsonView();
+  }
+
+  function upsertRawRow(rawRow) {
+    if (!rawRow || rawRow.id == null) {
+      return;
+    }
+    const next = [...state.loadedRowsRaw];
+    const index = next.findIndex((row) => Number(row?.id) === Number(rawRow.id));
+    if (index >= 0) {
+      next[index] = rawRow;
+    } else {
+      next.push(rawRow);
+    }
+    state.loadedRowsRaw = next;
+    renderJsonView();
+  }
+
+  function removeRawRowById(id) {
+    state.loadedRowsRaw = state.loadedRowsRaw.filter((row) => Number(row?.id) !== Number(id));
+    renderJsonView();
+  }
+
+  function cleanRowForDisplay(row) {
+    return Object.fromEntries(
+      Object.entries(row || {}).filter(([key]) => !key.startsWith("_"))
+    );
+  }
+
+  function getQueryFilters(resource) {
+    return resource?.queryFilters || [];
+  }
+
+  function renderFilterControls(resource) {
+    const wrap = document.getElementById("filter-controls");
+    const fieldsWrap = document.getElementById("filter-fields");
+    if (!wrap || !fieldsWrap) {
+      return;
+    }
+
+    fieldsWrap.innerHTML = "";
+    const queryFilters = getQueryFilters(resource);
+    const loggedIn = Boolean(getToken());
+    wrap.hidden = !loggedIn || !resource || queryFilters.length === 0;
+
+    if (!resource || queryFilters.length === 0) {
+      return;
+    }
+
+    const values = getFilterValues(resource.name);
+    for (const filter of queryFilters) {
+      fieldsWrap.appendChild(buildFilterControl(resource, filter, values[filter.param] ?? ""));
+    }
+  }
+
+  function buildFilterControl(resource, filter, currentValue) {
+    const label = document.createElement("label");
+    label.htmlFor = filterControlId(resource, filter);
+    label.textContent = filter.param;
+
+    const control = createFilterInput(resource, filter, currentValue);
+    label.appendChild(control);
+    return label;
+  }
+
+  function createFilterInput(_resource, filter, currentValue) {
+    const id = filterControlId(state.resource || { name: "resource" }, filter);
+
+    if (filter.fieldName === "owner_id") {
+      const select = document.createElement("select");
+      select.id = id;
+      select.dataset.queryParam = filter.param;
+      select.appendChild(new Option("Any owner", ""));
+      for (const option of state.userOptions) {
+        select.appendChild(new Option(option.label, String(option.value)));
+      }
+      select.value = String(currentValue || "");
+      return select;
+    }
+
+    if (filter.references) {
+      const select = document.createElement("select");
+      select.id = id;
+      select.dataset.queryParam = filter.param;
+      select.appendChild(new Option(`Any ${filter.param}`, ""));
+      for (const option of state.fkOptions[filter.fieldName] || []) {
+        select.appendChild(new Option(option.label, String(option.value)));
+      }
+      select.value = String(currentValue || "");
+      return select;
+    }
+
+    if (filter.type === "boolean") {
+      const select = document.createElement("select");
+      select.id = id;
+      select.dataset.queryParam = filter.param;
+      select.appendChild(new Option(`Any ${filter.param}`, ""));
+      select.appendChild(new Option("true", "true"));
+      select.appendChild(new Option("false", "false"));
+      select.value = String(currentValue || "");
+      return select;
+    }
+
+    const input = document.createElement("input");
+    input.id = id;
+    input.dataset.queryParam = filter.param;
+    input.placeholder = filterPlaceholder(filter);
+    input.value = String(currentValue || "");
+    if (filter.type === "integer" || filter.type === "number") {
+      input.type = "number";
+      input.step = filter.type === "integer" ? "1" : "any";
+    } else {
+      input.type = "text";
+    }
+    return input;
+  }
+
+  function filterControlId(resource, filter) {
+    return `filter-${resource.name}-${filter.param}`.replace(/[^a-zA-Z0-9_-]/g, "-");
+  }
+
+  function filterPlaceholder(filter) {
+    if (filter.op === "contains") {
+      return `Contains ${filter.fieldName}`;
+    }
+    return `Filter by ${filter.fieldName}`;
+  }
+
+  function getFilterValues(resourceName) {
+    return state.filterValuesByResource[resourceName] || {};
+  }
+
+  function captureFilterValues(resourceName) {
+    if (!resourceName) {
+      return {};
+    }
+    const values = {};
+    const controls = document.querySelectorAll("#filter-fields [data-query-param]");
+    controls.forEach((control) => {
+      values[control.dataset.queryParam] = control.value;
+    });
+    state.filterValuesByResource[resourceName] = values;
+    return values;
+  }
+
+  function clearFilterValues(resourceName) {
+    state.filterValuesByResource[resourceName] = {};
+    const controls = document.querySelectorAll("#filter-fields [data-query-param]");
+    controls.forEach((control) => {
+      control.value = "";
+    });
+  }
+
+  function buildListUrl(resource) {
+    if (!resource) {
+      return "";
+    }
+    const params = new URLSearchParams();
+    const values = captureFilterValues(resource.name);
+    for (const filter of getQueryFilters(resource)) {
+      const value = values[filter.param];
+      if (value != null && String(value).trim() !== "") {
+        params.set(filter.param, String(value).trim());
+      }
+    }
+    const query = params.toString();
+    return query ? `${resource.path}?${query}` : resource.path;
   }
 
   /**
@@ -458,6 +690,24 @@
     }
   }
 
+  async function loadUserOptions() {
+    if (!getToken()) {
+      state.userOptions = [];
+      return;
+    }
+
+    const { res, data } = await apiFetch("/auth/users", { method: "GET" });
+    if (!res.ok || !Array.isArray(data)) {
+      state.userOptions = [];
+      return;
+    }
+
+    state.userOptions = data.map((user) => ({
+      value: user.id,
+      label: `${user.username} (#${user.id})`,
+    }));
+  }
+
   function fkLabel(row, target) {
     const strField = (target.fields || []).find((f) => f.type === "string" || f.type === "text");
     if (strField && row[strField.name] != null) {
@@ -545,6 +795,11 @@
         formatter: (cell) => formatCell(field, cell.getValue()),
       };
 
+      if (field.type === "image_url") {
+        col.minWidth = 220;
+        col.variableHeight = true;
+      }
+
       const opts = state.fkOptions[field.name];
       if (field.references && Array.isArray(opts) && opts.length > 0) {
         const valuesMap = {};
@@ -589,7 +844,45 @@
     if (field.type === "boolean") {
       return value === true || value === 1 ? "✓" : "✗";
     }
+    if (field.type === "image_url") {
+      return formatImageUrlCell(value);
+    }
     return String(value);
+  }
+
+  function formatImageUrlCell(value) {
+    const src = String(value || "").trim();
+    if (!src) {
+      return "";
+    }
+    if (!isDisplayableImageUrl(src)) {
+      return `<span class="image-url-fallback">${escapeHtml(src)}</span>`;
+    }
+
+    const escapedSrc = escapeHtml(src);
+    return `
+        <div class="image-url-cell">
+            <div>
+                <a class="image-url-link" href="${escapedSrc}" target="_blank" rel="noopener noreferrer">
+                    <img class="image-url-thumb" src="${escapedSrc}" alt="Thumbnail preview" loading="lazy" />
+                </a>
+            </div>
+            ${escapedSrc}
+        </div>
+    `;
+  }
+
+  function isDisplayableImageUrl(value) {
+    return /^(https?:\/\/|\/|\.\/|\.\.\/)/i.test(value);
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
   }
 
   function serializeForApi(field, value) {
@@ -665,6 +958,7 @@
       const { res, data: err } = await apiFetch(`${resource.path}/${id}`, { method: "DELETE" });
       if (res.status === 204 || res.ok) {
         row.delete();
+        removeRawRowById(id);
         setStatus("Deleted.", "ok");
         return;
       }
@@ -703,6 +997,7 @@
         }
         const normalized = normalizeRow(resource, created);
         updateRowQuietly(row, { ...normalized, _pending: false });
+        upsertRawRow(created);
         setStatus("Created.", "ok");
         return;
       }
@@ -749,6 +1044,7 @@
       if (res.ok) {
         const normalized = normalizeRow(resource, data);
         updateRowQuietly(row, normalized);
+        upsertRawRow(data);
         setStatus("Saved.", "ok");
         return;
       }
@@ -760,6 +1056,10 @@
 
   function normalizeRow(resource, raw) {
     const row = { ...raw };
+    const owner =
+      row.owner && typeof row.owner === "object"
+        ? row.owner
+        : null;
     for (const rel of resource.relations || []) {
       if (rel.kind !== "belongsTo") {
         continue;
@@ -774,7 +1074,22 @@
         row[rel.localField] = nested.id;
       }
     }
+    for (const field of resource.fields) {
+      const nested = row[field.name];
+      if (
+        field.references &&
+        nested &&
+        typeof nested === "object" &&
+        nested.id != null
+      ) {
+        row[field.name] = nested.id;
+      }
+    }
     const flat = flattenRecord(row);
+    if (owner) {
+      flat.owner_id = owner.id;
+      flat.creator = owner.username || String(owner.id || "");
+    }
     for (const f of resource.fields) {
       if (Object.prototype.hasOwnProperty.call(flat, f.name)) {
         flat[f.name] = normalizeIncomingValue(f, flat[f.name]);
@@ -797,6 +1112,8 @@
     }
 
     await loadFkOptions(resource);
+    await loadUserOptions();
+    renderFilterControls(resource);
 
     try {
       await ensureTabulator();
@@ -853,19 +1170,25 @@
     });
 
     if (needsAuthForRead(resource) && !getToken()) {
+      state.loadedRows = [];
+      state.loadedRowsRaw = [];
       state.table.setData([]);
+      renderJsonView();
       return;
     }
 
-    const { res, data } = await apiFetch(resource.path, { method: "GET" });
+    const { res, data } = await apiFetch(buildListUrl(resource), { method: "GET" });
     if (!res.ok) {
       setStatus(data?.error || `List failed (${res.status})`, "error");
+      state.loadedRows = [];
+      state.loadedRowsRaw = [];
       state.table.setData([]);
+      renderJsonView();
       return;
     }
-    const rows = Array.isArray(data) ? data.map((r) => normalizeRow(resource, r)) : [];
-    state.table.setData(rows);
-    setStatus(`Loaded ${rows.length} row(s).`, "ok");
+    setLoadedRowsFromApi(resource, Array.isArray(data) ? data : []);
+    state.table.setData(state.loadedRows);
+    setStatus(`Loaded ${state.loadedRows.length} row(s).`, "ok");
   }
 
   async function applyAuthToken(token, message) {
@@ -905,6 +1228,7 @@
   async function logout() {
     setToken("");
     state.currentUser = null;
+    state.userOptions = [];
     const passwordInput = document.getElementById("password");
     if (passwordInput) {
       passwordInput.value = "";
@@ -932,6 +1256,9 @@
     });
 
     document.getElementById("resource-select").addEventListener("change", (e) => {
+      if (state.resource?.name) {
+        captureFilterValues(state.resource.name);
+      }
       const v = e.target.value;
       if (v) {
         loadTable(v);
@@ -945,6 +1272,32 @@
       const v = document.getElementById("resource-select").value;
       if (v) {
         loadTable(v);
+      }
+    });
+
+    document.getElementById("view-mode-select").addEventListener("change", (e) => {
+      setViewMode(e.target.value);
+    });
+
+    document.getElementById("apply-filters-btn").addEventListener("click", () => {
+      if (state.resource) {
+        captureFilterValues(state.resource.name);
+        loadTable(state.resource.name);
+      }
+    });
+
+    document.getElementById("clear-filters-btn").addEventListener("click", () => {
+      if (state.resource) {
+        clearFilterValues(state.resource.name);
+        loadTable(state.resource.name);
+      }
+    });
+
+    document.getElementById("filter-fields").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && state.resource) {
+        e.preventDefault();
+        captureFilterValues(state.resource.name);
+        loadTable(state.resource.name);
       }
     });
 
@@ -962,7 +1315,7 @@
       for (const f of r.fields) {
         blank[f.name] = f.type === "boolean" ? false : "";
       }
-      state.table.addRow(blank, true);
+      Promise.resolve(state.table.addRow(blank, true));
       setStatus("New row: fill cells, then edit any cell to save (or Tab out).", "ok");
     });
   }
