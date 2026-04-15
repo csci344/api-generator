@@ -4,3 +4,4 @@ generated/
 .env
 package-lock.json
 sample-data/
+.DS_Store 

@@ -450,6 +450,7 @@
     wrap.hidden = !loggedIn || !resource || queryFilters.length === 0;
 
     if (!resource || queryFilters.length === 0) {
+      updateFilterRequestLink("");
       return;
     }
 
@@ -571,6 +572,25 @@
     }
     const query = params.toString();
     return query ? `${resource.path}?${query}` : resource.path;
+  }
+
+  /** Show the resolved GET list URL (path + query) in the filters panel. */
+  function updateFilterRequestLink(listPath) {
+    const wrap = document.getElementById("filter-api-link-wrap");
+    const a = document.getElementById("filter-api-link");
+    if (!wrap || !a) {
+      return;
+    }
+    if (!listPath || !state.resource || getQueryFilters(state.resource).length === 0) {
+      wrap.hidden = true;
+      a.removeAttribute("href");
+      a.textContent = "";
+      return;
+    }
+    const full = apiUrl(listPath);
+    a.href = full;
+    a.textContent = full;
+    wrap.hidden = false;
   }
 
   /**
@@ -1114,6 +1134,8 @@
     await loadFkOptions(resource);
     await loadUserOptions();
     renderFilterControls(resource);
+    const listPath = buildListUrl(resource);
+    updateFilterRequestLink(listPath);
 
     try {
       await ensureTabulator();
@@ -1177,7 +1199,7 @@
       return;
     }
 
-    const { res, data } = await apiFetch(buildListUrl(resource), { method: "GET" });
+    const { res, data } = await apiFetch(listPath, { method: "GET" });
     if (!res.ok) {
       setStatus(data?.error || `List failed (${res.status})`, "error");
       state.loadedRows = [];

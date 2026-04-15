@@ -54,10 +54,16 @@
                 <button type="button" id="add-row-btn" class="button primary small">Add row</button>
             </div>
             <div class="filter-bar" id="filter-controls" hidden>
-                <div class="filter-fields" id="filter-fields"></div>
-                <div class="filter-actions">
-                    <button type="button" id="apply-filters-btn" class="button ghost small">Apply filters</button>
-                    <button type="button" id="clear-filters-btn" class="button ghost small">Clear</button>
+                <div class="filter-bar-top">
+                    <div class="filter-fields" id="filter-fields"></div>
+                    <div class="filter-actions">
+                        <button type="button" id="apply-filters-btn" class="button ghost small">Apply filters</button>
+                        <button type="button" id="clear-filters-btn" class="button ghost small">Clear</button>
+                    </div>
+                </div>
+                <div class="filter-api-link-wrap" id="filter-api-link-wrap" hidden>
+                    <span class="filter-api-link-label">List URL</span>
+                    <a id="filter-api-link" class="filter-api-link" href="#" target="_blank" rel="noopener noreferrer"></a>
                 </div>
             </div>
         </div>
