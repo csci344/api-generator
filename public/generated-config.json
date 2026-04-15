@@ -1,0 +1,148 @@
+{
+  "meta": {
+    "configPath": "api.config.yaml",
+    "generatedAt": "2026-04-15T13:58:55.289Z",
+    "seedDir": "sample-data"
+  },
+  "resources": [
+    {
+      "name": "photos",
+      "tableName": "photos",
+      "fileBase": "photos",
+      "path": "/api/photos",
+      "operations": [
+        "list",
+        "retrieve",
+        "create",
+        "update",
+        "delete"
+      ],
+      "shareable": false,
+      "ownershipEnabled": true,
+      "fields": [
+        {
+          "name": "title",
+          "type": "string",
+          "required": true,
+          "references": null
+        },
+        {
+          "name": "image_url",
+          "type": "string",
+          "required": true,
+          "references": null
+        },
+        {
+          "name": "caption",
+          "type": "text",
+          "required": false,
+          "references": null
+        }
+      ],
+      "relations": [],
+      "permissions": {
+        "list": "public",
+        "retrieve": "public",
+        "create": "user",
+        "update": "owner",
+        "delete": "owner"
+      }
+    },
+    {
+      "name": "comments",
+      "tableName": "comments",
+      "fileBase": "comments",
+      "path": "/api/comments",
+      "operations": [
+        "list",
+        "retrieve",
+        "create",
+        "update",
+        "delete"
+      ],
+      "shareable": false,
+      "ownershipEnabled": true,
+      "fields": [
+        {
+          "name": "body",
+          "type": "text",
+          "required": true,
+          "references": null
+        },
+        {
+          "name": "photo_id",
+          "type": "integer",
+          "required": false,
+          "references": {
+            "resource": "photos",
+            "field": "id"
+          }
+        }
+      ],
+      "relations": [
+        {
+          "name": "photo",
+          "kind": "belongsTo",
+          "localField": "photo_id",
+          "targetResource": "photos",
+          "targetField": "id"
+        }
+      ],
+      "permissions": {
+        "list": "public",
+        "retrieve": "public",
+        "create": "user",
+        "update": "owner",
+        "delete": "owner"
+      }
+    },
+    {
+      "name": "bookmarks",
+      "tableName": "bookmarks",
+      "fileBase": "bookmarks",
+      "path": "/api/bookmarks",
+      "operations": [
+        "list",
+        "retrieve",
+        "create",
+        "update",
+        "delete"
+      ],
+      "shareable": false,
+      "ownershipEnabled": true,
+      "fields": [
+        {
+          "name": "note",
+          "type": "string",
+          "required": false,
+          "references": null
+        },
+        {
+          "name": "photo_id",
+          "type": "integer",
+          "required": false,
+          "references": {
+            "resource": "photos",
+            "field": "id"
+          }
+        }
+      ],
+      "relations": [
+        {
+          "name": "photo",
+          "kind": "belongsTo",
+          "localField": "photo_id",
+          "targetResource": "photos",
+          "targetField": "id"
+        }
+      ],
+      "permissions": {
+        "list": "public",
+        "retrieve": "public",
+        "create": "user",
+        "update": "owner",
+        "delete": "owner"
+      }
+    }
+  ]
+}

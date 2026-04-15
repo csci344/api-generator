@@ -17,7 +17,7 @@ function main() {
       console.log(`  operations: ${resource.operations.join(", ")}`);
       console.log(`  fields: ${resource.fields.map((field) => `${field.name}:${field.type}`).join(", ")}`);
       const authSummary = resource.operations
-        .map((operation) => `${operation}=${resource.auth[operation]}`)
+        .map((operation) => `${operation}=${resource.permissions[operation]}`)
         .join(", ");
       console.log(
         `  auth: ${authSummary}`

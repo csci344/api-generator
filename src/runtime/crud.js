@@ -13,21 +13,19 @@ function buildCrudRouter(db, resource, resourceMap) {
 
   if (resource.operations.includes("list")) {
     router.get("/", optionalAuth, (req, res) => {
-      if (!ensureCollectionPolicy(resource.auth.list, req, res)) {
+      if (!ensureCollectionPolicy(resource.permissions.list, req, res)) {
         return;
       }
 
       const rows = listRows(db, resource, req.user);
-      const payload = rows.map((row) =>
-        shapeRecord(db, resourceMap, resource, row, resource.responseViews.list)
-      );
+      const payload = rows.map((row) => shapeRecord(db, resourceMap, resource, row));
       res.json(payload);
     });
   }
 
   if (resource.operations.includes("retrieve")) {
     router.get("/:id", optionalAuth, (req, res) => {
-      const row = getAccessibleRow(db, resource, req.params.id, req.user, resource.auth.retrieve);
+      const row = getAccessibleRow(db, resource, req.params.id, req.user, resource.permissions.retrieve);
       if (row === null) {
         res.status(404).json({ error: "Record not found." });
         return;
@@ -37,12 +35,12 @@ function buildCrudRouter(db, resource, resourceMap) {
         return;
       }
 
-      res.json(shapeRecord(db, resourceMap, resource, row, resource.responseViews.retrieve));
+      res.json(shapeRecord(db, resourceMap, resource, row));
     });
   }
 
   if (resource.operations.includes("create")) {
-    router.post("/", requirePolicyMiddleware(resource.auth.create), (req, res) => {
+    router.post("/", requirePolicyMiddleware(resource.permissions.create), (req, res, next) => {
       const validationError = validateBody(resource, req.body, false);
       if (validationError) {
         res.status(400).json({ error: validationError });
@@ -59,25 +57,38 @@ function buildCrudRouter(db, resource, resourceMap) {
       }
 
       const placeholders = fieldNames.map(() => "?").join(", ");
-      const result = db
-        .prepare(
-          `INSERT INTO ${resource.tableName} (${fieldNames.join(", ")}) VALUES (${placeholders})`
-        )
-        .run(...values);
+      let result;
+      try {
+        result = db
+          .prepare(
+            `INSERT INTO ${resource.tableName} (${fieldNames.join(", ")}) VALUES (${placeholders})`
+          )
+          .run(...values);
+      } catch (err) {
+        if (isSqliteConstraintError(err)) {
+          res.status(400).json({ error: err.message });
+          return;
+        }
+        return next(err);
+      }
 
       const created = db
         .prepare(`SELECT * FROM ${resource.tableName} WHERE id = ?`)
         .get(result.lastInsertRowid);
 
-      res
-        .status(201)
-        .json(shapeRecord(db, resourceMap, resource, created, resource.responseViews.create));
+      try {
+        res
+          .status(201)
+          .json(shapeRecord(db, resourceMap, resource, created));
+      } catch (err) {
+        next(err);
+      }
     });
   }
 
   if (resource.operations.includes("update")) {
-    router.patch("/:id", requirePolicyMiddleware(resource.auth.update), (req, res) => {
-      const existing = getAccessibleRow(db, resource, req.params.id, req.user, resource.auth.update);
+    router.patch("/:id", requirePolicyMiddleware(resource.permissions.update), (req, res) => {
+      const existing = getAccessibleRow(db, resource, req.params.id, req.user, resource.permissions.update);
       if (!existing) {
         res.status(existing === false ? 401 : 404).json({
           error: existing === false ? "Authentication required." : "Record not found.",
@@ -110,13 +121,13 @@ function buildCrudRouter(db, resource, resourceMap) {
         .prepare(`SELECT * FROM ${resource.tableName} WHERE id = ?`)
         .get(req.params.id);
 
-      res.json(shapeRecord(db, resourceMap, resource, updated, resource.responseViews.update));
+      res.json(shapeRecord(db, resourceMap, resource, updated));
     });
   }
 
   if (resource.operations.includes("delete")) {
-    router.delete("/:id", requirePolicyMiddleware(resource.auth.delete), (req, res) => {
-      const existing = getAccessibleRow(db, resource, req.params.id, req.user, resource.auth.delete);
+    router.delete("/:id", requirePolicyMiddleware(resource.permissions.delete), (req, res) => {
+      const existing = getAccessibleRow(db, resource, req.params.id, req.user, resource.permissions.delete);
       if (!existing) {
         res.status(existing === false ? 401 : 404).json({
           error: existing === false ? "Authentication required." : "Record not found.",
@@ -245,7 +256,7 @@ function buildCrudRouter(db, resource, resourceMap) {
 
 function listRows(db, resource, user) {
   const baseQuery = `SELECT DISTINCT t.* FROM ${resource.tableName} t`;
-  switch (resource.auth.list) {
+  switch (resource.permissions.list) {
     case "public":
       return db.prepare(`SELECT * FROM ${resource.tableName} ORDER BY id DESC`).all();
     case "user":
@@ -307,33 +318,19 @@ function getAccessibleRow(db, resource, id, user, policy) {
   }
 }
 
-function shapeRecord(db, resourceMap, resource, record, viewName, depth = 0) {
+function shapeRecord(db, resourceMap, resource, record, depth = 0) {
   if (!record) {
     return null;
   }
 
-  const view = viewName ? resource.views?.[viewName] : null;
-  if (!view) {
-    return { ...record };
-  }
-
-  const shaped = {};
-  for (const fieldSpec of view.fields || []) {
-    if (typeof fieldSpec === "string") {
-      shaped[fieldSpec] = record[fieldSpec];
-      continue;
-    }
-    if (fieldSpec && typeof fieldSpec === "object" && fieldSpec.from && fieldSpec.as) {
-      shaped[fieldSpec.as] = record[fieldSpec.from];
-    }
-  }
+  const creator = getCreatorUsername(db, resource, record);
+  const shaped = creator ? { ...record, creator } : { ...record };
 
   if (depth > 0) {
     return shaped;
   }
 
-  for (const include of view.include || []) {
-    const relation = resource.relations.find((candidate) => candidate.name === include.relation);
+  for (const relation of resource.relations || []) {
     if (!relation || relation.kind !== "belongsTo") {
       continue;
     }
@@ -353,17 +350,19 @@ function shapeRecord(db, resourceMap, resource, record, viewName, depth = 0) {
       .prepare(`SELECT * FROM ${target.tableName} WHERE ${relation.targetField || "id"} = ?`)
       .get(foreignValue);
 
-    shaped[relation.name] = shapeRecord(
-      db,
-      resourceMap,
-      target,
-      relatedRecord,
-      include.view || target.responseViews.retrieve,
-      depth + 1
-    );
+    shaped[relation.name] = shapeRecord(db, resourceMap, target, relatedRecord, depth + 1);
   }
 
   return shaped;
+}
+
+function getCreatorUsername(db, resource, record) {
+  if (!resource.ownershipEnabled || record.owner_id == null) {
+    return null;
+  }
+
+  const owner = db.prepare("SELECT username FROM users WHERE id = ?").get(record.owner_id);
+  return owner?.username || null;
 }
 
 function validateBody(resource, body, partial) {
@@ -436,6 +435,17 @@ function requirePolicyMiddleware(policy) {
     return (_req, _res, next) => next();
   }
   return requireAuth;
+}
+
+/** better-sqlite3 throws SqliteError with code SQLITE_* */
+function isSqliteConstraintError(err) {
+  return Boolean(
+    err &&
+      typeof err.code === "string" &&
+      err.code.startsWith("SQLITE_") &&
+      err.code !== "SQLITE_BUSY" &&
+      err.code !== "SQLITE_LOCKED"
+  );
 }
 
 function ensureCollectionPolicy(policy, req, res) {

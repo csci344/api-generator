@@ -1,7 +1,17 @@
 const fs = require("fs");
 const path = require("path");
+const { writeSeedArtifacts } = require("./seedArtifacts");
+const { normalizeSeedDir } = require("../runtime/seedDir");
 
-function writeArtifacts(projectRoot, config) {
+function writeArtifacts(projectRoot, config, seedOptions = {}) {
+  const seedDir = normalizeSeedDir(seedOptions.seedDir, config.meta?.seedDir || "data");
+  const configWithMeta = {
+    ...config,
+    meta: {
+      ...config.meta,
+      seedDir,
+    },
+  };
   const generatedDir = path.join(projectRoot, "generated");
   const routesDir = path.join(generatedDir, "routes");
   const validatorsDir = path.join(generatedDir, "validators");
@@ -13,21 +23,28 @@ function writeArtifacts(projectRoot, config) {
 
   fs.writeFileSync(
     path.join(generatedDir, "config.json"),
-    JSON.stringify(config, null, 2)
+    JSON.stringify(configWithMeta, null, 2)
   );
 
-  fs.writeFileSync(path.join(generatedDir, "schema.sql"), buildSchemaSql(config));
+  const publicDir = path.join(projectRoot, "public");
+  fs.mkdirSync(publicDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(publicDir, "generated-config.json"),
+    JSON.stringify(configWithMeta, null, 2)
+  );
+
+  fs.writeFileSync(path.join(generatedDir, "schema.sql"), buildSchemaSql(configWithMeta));
   fs.writeFileSync(
     path.join(docsDir, "routes.json"),
-    JSON.stringify(buildDocs(config), null, 2)
+    JSON.stringify(buildDocs(configWithMeta), null, 2)
   );
   fs.writeFileSync(
     path.join(docsDir, "openapi.json"),
-    JSON.stringify(buildOpenApi(config), null, 2)
+    JSON.stringify(buildOpenApi(configWithMeta), null, 2)
   );
 
   const routeModules = [];
-  for (const resource of config.resources) {
+  for (const resource of configWithMeta.resources) {
     const validatorModulePath = `../validators/${resource.fileBase}.js`;
     const routeModulePath = path.join(routesDir, `${resource.fileBase}.js`);
     const validatorModule = buildValidatorModule(resource);
@@ -54,6 +71,11 @@ function writeArtifacts(projectRoot, config) {
       "",
     ].join("\n")
   );
+
+  writeSeedArtifacts(projectRoot, configWithMeta, {
+    ...seedOptions,
+    seedDir,
+  });
 }
 
 function buildSchemaSql(config) {
@@ -107,46 +129,42 @@ function buildDocs(config) {
         endpoints.push({
           method: "GET",
           path: resource.path,
-          auth: resource.auth.list,
-          responseView: resource.responseViews.list,
+          permissions: resource.permissions.list,
         });
       }
       if (resource.operations.includes("retrieve")) {
         endpoints.push({
           method: "GET",
           path: `${resource.path}/:id`,
-          auth: resource.auth.retrieve,
-          responseView: resource.responseViews.retrieve,
+          permissions: resource.permissions.retrieve,
         });
       }
       if (resource.operations.includes("create")) {
         endpoints.push({
           method: "POST",
           path: resource.path,
-          auth: resource.auth.create,
-          responseView: resource.responseViews.create,
+          permissions: resource.permissions.create,
         });
       }
       if (resource.operations.includes("update")) {
         endpoints.push({
           method: "PATCH",
           path: `${resource.path}/:id`,
-          auth: resource.auth.update,
-          responseView: resource.responseViews.update,
+          permissions: resource.permissions.update,
         });
       }
       if (resource.operations.includes("delete")) {
         endpoints.push({
           method: "DELETE",
           path: `${resource.path}/:id`,
-          auth: resource.auth.delete,
+          permissions: resource.permissions.delete,
         });
       }
       if (resource.shareable) {
         endpoints.push(
-          { method: "GET", path: `${resource.path}/:id/shares`, auth: "owner" },
-          { method: "POST", path: `${resource.path}/:id/shares`, auth: "owner" },
-          { method: "DELETE", path: `${resource.path}/:id/shares/:shareId`, auth: "owner" }
+          { method: "GET", path: `${resource.path}/:id/shares`, permissions: "owner" },
+          { method: "POST", path: `${resource.path}/:id/shares`, permissions: "owner" },
+          { method: "DELETE", path: `${resource.path}/:id/shares/:shareId`, permissions: "owner" }
         );
       }
       return {
@@ -160,6 +178,7 @@ function buildDocs(config) {
 }
 
 function buildOpenApi(config) {
+  const resourceMap = new Map(config.resources.map((resource) => [resource.name, resource]));
   const paths = {
     "/auth/register": {
       post: {
@@ -308,16 +327,7 @@ function buildOpenApi(config) {
 
     components.schemas[createSchemaName] = buildInputSchema(resource, false);
     components.schemas[updateSchemaName] = buildInputSchema(resource, true);
-    components.schemas[fullSchemaName] = buildFullRecordSchema(resource);
-
-    const viewNames = Object.keys(resource.views || {});
-    for (const viewName of viewNames) {
-      components.schemas[schemaNameForView(resource, viewName)] = buildViewSchema(
-        config,
-        resource,
-        viewName
-      );
-    }
+    components.schemas[fullSchemaName] = buildFullRecordSchema(resourceMap, resource);
 
     if (resource.operations.includes("list")) {
       paths[resource.path] ||= {};
@@ -331,14 +341,14 @@ function buildOpenApi(config) {
               "application/json": {
                 schema: {
                   type: "array",
-                  items: responseSchemaRef(resource, resource.responseViews.list),
+                  items: { $ref: `#/components/schemas/${fullSchemaName}` },
                 },
               },
             },
           },
           ...errorResponses(),
         },
-        ...securityForPolicy(resource.auth.list),
+        ...securityForPolicy(resource.permissions.list),
       };
     }
 
@@ -360,13 +370,13 @@ function buildOpenApi(config) {
             description: "Created successfully",
             content: {
               "application/json": {
-                schema: responseSchemaRef(resource, resource.responseViews.create),
+                schema: { $ref: `#/components/schemas/${fullSchemaName}` },
               },
             },
           },
           ...errorResponses(),
         },
-        ...securityForPolicy(resource.auth.create),
+        ...securityForPolicy(resource.permissions.create),
       };
     }
 
@@ -381,13 +391,13 @@ function buildOpenApi(config) {
             description: "Record found",
             content: {
               "application/json": {
-                schema: responseSchemaRef(resource, resource.responseViews.retrieve),
+                schema: { $ref: `#/components/schemas/${fullSchemaName}` },
               },
             },
           },
           ...errorResponses(),
         },
-        ...securityForPolicy(resource.auth.retrieve),
+        ...securityForPolicy(resource.permissions.retrieve),
       };
     }
 
@@ -409,13 +419,13 @@ function buildOpenApi(config) {
             description: "Updated successfully",
             content: {
               "application/json": {
-                schema: responseSchemaRef(resource, resource.responseViews.update),
+                schema: { $ref: `#/components/schemas/${fullSchemaName}` },
               },
             },
           },
           ...errorResponses(),
         },
-        ...securityForPolicy(resource.auth.update),
+        ...securityForPolicy(resource.permissions.update),
       };
     }
 
@@ -428,7 +438,7 @@ function buildOpenApi(config) {
           204: { description: "Deleted successfully" },
           ...errorResponses(),
         },
-        ...securityForPolicy(resource.auth.delete),
+        ...securityForPolicy(resource.permissions.delete),
       };
     }
 
@@ -514,7 +524,7 @@ function buildOpenApi(config) {
       description:
         "Interactive API documentation generated from api.config.yaml and the built-in auth/sharing system.",
     },
-    servers: [{ url: "http://localhost:3100" }],
+    servers: [{ url: "/" }],
     tags: [
       { name: "auth" },
       ...config.resources.map((resource) => ({ name: resource.name })),
@@ -579,64 +589,36 @@ function buildInputSchema(resource, partial) {
   };
 }
 
-function buildFullRecordSchema(resource) {
+function buildFullRecordSchema(resourceMap, resource, depth = 0) {
   const properties = {
     id: { type: "integer" },
   };
 
   if (resource.ownershipEnabled) {
     properties.owner_id = { type: "integer" };
+    properties.creator = { type: "string" };
   }
 
   for (const field of resource.fields) {
     properties[field.name] = openApiTypeForField(field.type);
   }
 
-  return {
-    type: "object",
-    properties,
-  };
-}
-
-function buildViewSchema(config, resource, viewName) {
-  const resourceMap = new Map(config.resources.map((entry) => [entry.name, entry]));
-  const view = resource.views?.[viewName] || {};
-  const properties = {};
-
-  for (const fieldSpec of view.fields || []) {
-    if (typeof fieldSpec === "string") {
-      if (fieldSpec === "id") {
-        properties.id = { type: "integer" };
-      } else {
-        const field = resource.fields.find((candidate) => candidate.name === fieldSpec);
-        if (field) {
-          properties[fieldSpec] = openApiTypeForField(field.type);
-        }
+  if (depth === 0) {
+    for (const relation of resource.relations || []) {
+      if (relation.kind !== "belongsTo") {
+        continue;
       }
-      continue;
-    }
 
-    if (fieldSpec?.from && fieldSpec?.as) {
-      const field = resource.fields.find((candidate) => candidate.name === fieldSpec.from);
-      if (field) {
-        properties[fieldSpec.as] = openApiTypeForField(field.type);
+      const target = resourceMap.get(relation.targetResource);
+      if (!target) {
+        continue;
       }
-    }
-  }
 
-  for (const include of view.include || []) {
-    const relation = resource.relations.find((candidate) => candidate.name === include.relation);
-    if (!relation) {
-      continue;
+      properties[relation.name] = {
+        ...buildFullRecordSchema(resourceMap, target, depth + 1),
+        nullable: true,
+      };
     }
-
-    const target = resourceMap.get(relation.targetResource);
-    if (!target) {
-      continue;
-    }
-
-    const targetView = include.view || target.responseViews.retrieve;
-    properties[relation.name] = responseSchemaRef(target, targetView);
   }
 
   return {
@@ -662,16 +644,6 @@ function openApiTypeForField(type) {
     default:
       return { type: "string" };
   }
-}
-
-function responseSchemaRef(resource, viewName) {
-  return viewName && resource.views?.[viewName]
-    ? { $ref: `#/components/schemas/${schemaNameForView(resource, viewName)}` }
-    : { $ref: `#/components/schemas/${pascalCase(resource.name)}Record` };
-}
-
-function schemaNameForView(resource, viewName) {
-  return `${pascalCase(resource.name)}${pascalCase(viewName)}`;
 }
 
 function pascalCase(value) {

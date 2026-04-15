@@ -102,43 +102,46 @@ function normalizeConfig(config, configPath) {
       };
     });
 
-    const auth = {
-      list: resource.auth?.list || "public",
-      retrieve: resource.auth?.retrieve || "public",
-      create: resource.auth?.create || "user",
-      update: resource.auth?.update || "owner",
-      delete: resource.auth?.delete || "owner",
+    const permissions = {
+      list: resource.permissions?.list || resource.auth?.list || "public",
+      retrieve: resource.permissions?.retrieve || resource.auth?.retrieve || "public",
+      create: resource.permissions?.create || resource.auth?.create || "user",
+      update: resource.permissions?.update || resource.auth?.update || "owner",
+      delete: resource.permissions?.delete || resource.auth?.delete || "owner",
     };
 
-    for (const [operation, policy] of Object.entries(auth)) {
+    for (const [operation, policy] of Object.entries(permissions)) {
       if (!ALLOWED_POLICIES.has(policy)) {
         throw new Error(
-          `Unsupported auth policy \`${policy}\` on ${resource.name}.${operation}.`
+          `Unsupported permissions policy \`${policy}\` on ${resource.name}.${operation}.`
         );
       }
     }
 
-    const enabledPolicies = operations.map((operation) => auth[operation]);
+    const enabledPolicies = operations.map((operation) => permissions[operation]);
     const ownershipEnabled = enabledPolicies.some((policy) =>
       ["user", "owner", "owner_or_shared"].includes(policy)
     );
 
     if (
       operations.includes("create") &&
-      (auth.update === "owner" ||
-        auth.delete === "owner" ||
-        auth.list === "owner" ||
-        auth.retrieve === "owner" ||
-        auth.list === "owner_or_shared" ||
-        auth.retrieve === "owner_or_shared") &&
-      auth.create === "public"
+      (permissions.update === "owner" ||
+        permissions.delete === "owner" ||
+        permissions.list === "owner" ||
+        permissions.retrieve === "owner" ||
+        permissions.list === "owner_or_shared" ||
+        permissions.retrieve === "owner_or_shared") &&
+      permissions.create === "public"
     ) {
       throw new Error(
         `Resource \`${resource.name}\` cannot use owner-based rules if \`create\` is public.`
       );
     }
 
-    if (!resource.shareable && (auth.list === "owner_or_shared" || auth.retrieve === "owner_or_shared")) {
+    if (
+      !resource.shareable &&
+      (permissions.list === "owner_or_shared" || permissions.retrieve === "owner_or_shared")
+    ) {
       throw new Error(
         `Resource \`${resource.name}\` uses \`owner_or_shared\` but is not marked \`shareable: true\`.`
       );
@@ -153,10 +156,8 @@ function normalizeConfig(config, configPath) {
       shareable: Boolean(resource.shareable),
       ownershipEnabled,
       fields,
-      relations: Array.isArray(resource.relations) ? resource.relations : [],
-      views: resource.views || {},
-      auth,
-      responseViews: normalizeResponseViews(resource),
+      relations: normalizeRelations(resource),
+      permissions,
     };
   });
 
@@ -194,6 +195,40 @@ function normalizeConfig(config, configPath) {
     }
   }
 
+  for (const resource of normalizedResources) {
+    for (const relation of resource.relations) {
+      if (relation.kind !== "belongsTo") {
+        continue;
+      }
+      const local = relation.localField;
+      if (!local) {
+        throw new Error(`Relation \`${resource.name}.${relation.name}\` must define \`localField\`.`);
+      }
+      if (local === "id" || local === "owner_id") {
+        throw new Error(
+          `Relation \`${resource.name}.${relation.name}\` cannot use reserved field name \`${local}\` as localField.`
+        );
+      }
+      const existing = resource.fields.find((candidate) => candidate.name === local);
+      const ref = {
+        resource: relation.targetResource,
+        field: relation.targetField || "id",
+      };
+      if (existing) {
+        if (!existing.references) {
+          existing.references = ref;
+        }
+      } else {
+        resource.fields.push({
+          name: local,
+          type: "integer",
+          required: false,
+          references: ref,
+        });
+      }
+    }
+  }
+
   return {
     meta: {
       configPath: path.basename(configPath),
@@ -203,23 +238,38 @@ function normalizeConfig(config, configPath) {
   };
 }
 
-function normalizeResponseViews(resource) {
-  const endpointConfig = resource.endpoints || {};
-  const hasSummary = Boolean(resource.views?.summary);
-  const hasDetail = Boolean(resource.views?.detail);
+function normalizeRelations(resource) {
+  if (!Array.isArray(resource.relations)) {
+    return [];
+  }
 
-  return {
-    list: endpointConfig.list?.response || (hasSummary ? "summary" : hasDetail ? "detail" : null),
-    retrieve:
-      endpointConfig.retrieve?.response ||
-      (hasDetail ? "detail" : hasSummary ? "summary" : null),
-    create:
-      endpointConfig.create?.response ||
-      (hasDetail ? "detail" : hasSummary ? "summary" : null),
-    update:
-      endpointConfig.update?.response ||
-      (hasDetail ? "detail" : hasSummary ? "summary" : null),
-  };
+  return resource.relations.map((relation, index) => {
+    if (!relation || typeof relation !== "object") {
+      throw new Error(`Relation #${index + 1} in resource \`${resource.name}\` must be an object.`);
+    }
+    if (!relation.name) {
+      throw new Error(`Every relation in resource \`${resource.name}\` must define a \`name\`.`);
+    }
+
+    const referenceSpec = relation.references;
+    const targetResource =
+      typeof referenceSpec === "string"
+        ? referenceSpec
+        : referenceSpec?.resource || relation.targetResource;
+    const targetField =
+      (referenceSpec && typeof referenceSpec === "object" ? referenceSpec.field : null) ||
+      relation.targetField ||
+      "id";
+    const localField = relation.localField || `${toKebabCase(relation.name).replace(/-/g, "_")}_id`;
+
+    return {
+      name: relation.name,
+      kind: "belongsTo",
+      localField,
+      targetResource,
+      targetField,
+    };
+  });
 }
 
 function toKebabCase(value) {
@@ -232,5 +282,6 @@ function toKebabCase(value) {
 module.exports = {
   loadApiConfig,
   normalizeConfig,
+  normalizeRelations,
   toKebabCase,
 };

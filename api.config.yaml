@@ -1,48 +1,52 @@
 resources:
-  - name: genres
-    path: /api/genres
-    operations: [list, retrieve, create, delete]
-    fields:
-      - name: label
-        type: string
-        required: true
-    auth:
-      list: public
-      retrieve: public
-
-  - name: books
-    path: /api/books
+  - name: photos
+    path: /api/photos
     operations: [list, retrieve, create, update, delete]
-    shareable: true
     fields:
       - name: title
         type: string
         required: true
-      - name: description
-        type: text
-      - name: author
+      - name: image_url
         type: string
-      - name: in_stock
-        type: boolean
-      - name: price
-        type: number
+        required: true
+      - name: caption
+        type: text
+    permissions:
+      list: public
+      retrieve: public
+      create: user
+      update: owner
+      delete: owner
+
+  - name: comments
+    path: /api/comments
+    operations: [list, retrieve, create, update, delete]
+    fields:
+      - name: body
+        type: text
+        required: true
     relations:
-      - name: genre
-        kind: belongsTo
-        localField: genre_id
-        targetResource: genres
-        targetField: id
-    views:
-      summary:
-        fields: [id, title, description, author, in_stock, price, genre]
-      detail:
-        fields: [id, title, description, author, in_stock, price, genre]
-        include:
-          - relation: genre
-            view: summary
-    auth:
-      list: owner_or_shared
-      retrieve: owner_or_shared
+      - name: photo
+        references: photos
+    permissions:
+      list: public
+      retrieve: public
+      create: user
+      update: owner
+      delete: owner
+
+  - name: bookmarks
+    path: /api/bookmarks
+    operations: [list, retrieve, create, update, delete]
+    fields:
+      - name: note
+        type: string
+    relations:
+      - name: photo
+        references: photos
+    permissions:
+      list: public
+      retrieve: public
       create: user
       update: owner
       delete: owner

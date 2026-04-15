@@ -2,3 +2,5 @@ node_modules/
 data/
 generated/
 .env
+package-lock.json
+sample-data/

@@ -141,7 +141,7 @@ h1 {
 
 .button.primary {
   background: linear-gradient(135deg, var(--primary-strong), var(--primary));
-  color: #061022;
+  color: white;
   border: none;
 }
 

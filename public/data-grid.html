@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Data grid — API Generator</title>
+    <link rel="stylesheet" href="/styles/home.css" />
+    <link rel="stylesheet" href="/styles/data-grid.css" />
+    <link
+      href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.1/dist/css/tabulator.min.css"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <main class="data-shell">
+      <section class="auth-bar" id="auth-bar">
+        <div>
+            <button type="button" id="logout-btn" class="button ghost small" hidden>Log out</button>
+            <form id="login-form" class="auth-form">
+            <label>
+                <input aria-label="Username" placeholder="Enter your username" id="username" name="username" autocomplete="username" />
+            </label>
+            <label>
+                <input aria-label="Password" placeholder="Enter your password" id="password" name="password" type="password" autocomplete="current-password" />
+            </label>
+            <button type="submit" class="button primary small">Log in</button>
+            </form>
+            <span id="token-hint" class="status ok"></span>
+        </div>
+        <div>
+            <a href="/">Home</a> ·
+            <a href="/api/docs">API docs</a>
+        </div>
+      </section>
+
+      <p id="auth-message" class="status" aria-live="polite"></p>
+
+      <!-- <header class="data-header">
+        <div>
+          
+          <p>
+            Browse public resources or log in to work with protected data. <a href="/">Home</a> ·
+            <a href="/api/docs">API docs</a>
+          </p>
+        </div>
+      </header> -->
+
+        <div class="toolbar" id="resource-controls">
+            <header class="data-header">
+                <h1>Data spreadsheet</h1>
+            </header>
+            <div class="toolbar-content">
+                <label>
+                Resource
+                <select id="resource-select">
+                    <option value="">Loading…</option>
+                </select>
+                </label>
+                <button type="button" id="refresh-btn" class="button ghost small">Refresh</button>
+                <button type="button" id="add-row-btn" class="button primary small">Add row</button>
+            </div>
+        </div>
+
+      <p id="status" class="status" aria-live="polite"></p>
+
+      <div id="grid-wrap">
+        <div id="data-table"></div>
+      </div>
+    </main>
+
+    <script>
+      // Optional: if you open this file from somewhere other than `npm start`, point at the API:
+      // window.__API_BASE__ = "http://127.0.0.1:3100";
+      // Or use: data-grid.html?api=http://127.0.0.1:3100
+    </script>
+    <script src="/js/data-grid.js"></script>
+  </body>
+</html>

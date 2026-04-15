@@ -1,4 +1,5 @@
 const fs = require("fs");
+const http = require("http");
 const path = require("path");
 const express = require("express");
 const cors = require("cors");
@@ -6,8 +7,9 @@ const swaggerUi = require("swagger-ui-express");
 const { initDatabase } = require("./runtime/db");
 const { registerAuthRoutes } = require("./runtime/auth");
 const { registerGeneratedResources } = require("./runtime/crud");
+const { registerCustomRoutes } = require("./routes/custom");
 
-function main() {
+async function main() {
   const projectRoot = path.resolve(__dirname, "..");
   const generatedConfigPath = path.join(projectRoot, "generated", "config.json");
   const generatedDocsPath = path.join(projectRoot, "generated", "docs", "routes.json");
@@ -18,6 +20,7 @@ function main() {
     console.error("Missing generated/config.json. Run `npm run generate` first.");
     process.exit(1);
   }
+  
   if (!fs.existsSync(generatedRoutesPath)) {
     console.error("Missing generated/routes/index.js. Run `npm run generate` first.");
     process.exit(1);
@@ -37,11 +40,10 @@ function main() {
 
   app.use(cors());
   app.use(express.json());
-  app.use(express.static(path.join(projectRoot, "public")));
 
-  app.get("/", (_req, res) => {
-    res.type("html").send(renderHomePage(generatedConfig));
-  });
+  function sendGeneratedConfig(_req, res) {
+    res.type("application/json").json(generatedConfig);
+  }
 
   app.get("/api/docs.json", (_req, res) => {
     res.json(docs);
@@ -49,6 +51,22 @@ function main() {
   app.get("/api/openapi.json", (_req, res) => {
     res.json(openApi);
   });
+
+  /*
+   * Generated API config for the data grid and tools.
+   * Prefer /api/generator-config (no ".json" in path — avoids odd proxies / old builds).
+   */
+  app.get("/api/generator-config", sendGeneratedConfig);
+  app.get("/api/schema", sendGeneratedConfig);
+  app.get("/api/docs/schema.json", sendGeneratedConfig);
+  app.get("/generator-config.json", sendGeneratedConfig);
+
+  app.use(express.static(path.join(projectRoot, "public")));
+
+  app.get("/", (_req, res) => {
+    res.type("html").send(renderHomePage(generatedConfig));
+  });
+
   app.use(
     "/api/docs",
     swaggerUi.serve,
@@ -62,16 +80,66 @@ function main() {
   );
 
   registerAuthRoutes(app, db);
+  registerCustomRoutes(app, db);
   registerGeneratedResources(app, db, generatedResources);
 
   app.use((err, _req, res, _next) => {
     console.error(err);
-    res.status(500).json({ error: "Unexpected server error." });
+    const status = Number(err.statusCode || err.status) || 500;
+    const hideDetails = process.env.NODE_ENV === "production" && status >= 500;
+    res.status(status).json({
+      error: hideDetails ? "Unexpected server error." : err.message || String(err),
+    });
   });
 
-  const port = Number(process.env.PORT || 3100);
-  app.listen(port, () => {
+  const requestedPort = Number(process.env.PORT || 3100);
+  const { port, usedFallback } = await listenOnAvailablePort(app, requestedPort);
+  if (usedFallback) {
+    console.log(`Port ${requestedPort} is already in use. Started on http://localhost:${port} instead.`);
+  } else {
     console.log(`API generator starter app listening on http://localhost:${port}`);
+  }
+  console.log(
+    "GET generated config (for data grid): /api/generator-config  (also /api/schema, /api/docs/schema.json)"
+  );
+}
+
+async function listenOnAvailablePort(app, requestedPort) {
+  for (let offset = 0; offset < 20; offset += 1) {
+    const port = requestedPort + offset;
+    try {
+      await listenOnPort(app, port);
+      return {
+        port,
+        usedFallback: offset > 0,
+      };
+    } catch (error) {
+      if (error?.code !== "EADDRINUSE") {
+        throw error;
+      }
+    }
+  }
+
+  throw new Error(`Could not find an open port starting at ${requestedPort}.`);
+}
+
+function listenOnPort(app, port) {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer(app);
+
+    function handleError(error) {
+      server.off("listening", handleListening);
+      reject(error);
+    }
+
+    function handleListening() {
+      server.off("error", handleError);
+      resolve(server);
+    }
+
+    server.once("error", handleError);
+    server.once("listening", handleListening);
+    server.listen(port);
   });
 }
 
@@ -83,43 +151,23 @@ function renderHomePage(generatedConfig) {
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <title>API Generator Starter</title>
       <link rel="stylesheet" href="/styles/home.css" />
-      <script>
-        (() => {
-          try {
-            const storedTheme = localStorage.getItem("api-generator-theme");
-            const theme = storedTheme === "dark" ? "dark" : "light";
-            document.documentElement.setAttribute("data-theme", theme);
-          } catch (_error) {
-            document.documentElement.setAttribute("data-theme", "light");
-          }
-        })();
-      </script>
     </head>
     <body>
       <main class="shell">
         <section class="hero">
           <div class="hero-card">
-            <div class="hero-header">
-              <div class="eyebrow">Sarah's Declarative CRUD Starter App</div>
-              <button class="theme-toggle" id="theme-toggle" type="button" aria-pressed="false">
-                <span id="theme-toggle-icon">Dark</span>
-                <span id="theme-toggle-label">mode</span>
-              </button>
-            </div>
-            <h1>Build an API from one YAML file.</h1>
-            <p class="lede">
-              This starter app reads <code>api.config.yaml</code>, generates your routes, schema, docs,
-              and validators, and serves a working API with built-in auth and sharing support.
+            <h1>API Generator Starter</h1>
+            <p>
+              Edit <code>api.config.yaml</code>, generate your API, and test it in the browser.
             </p>
             <div class="actions">
               <a class="button primary" href="/api/docs">Open Interactive Docs</a>
-              <a class="button secondary" href="/api/openapi.json">View OpenAPI JSON</a>
-              <a class="button secondary" href="/api/docs.json">View Route Summary</a>
+              <a class="button secondary" href="/data-grid.html">Data spreadsheet</a>
             </div>
             <div class="hero-meta">
               <span>Generated from <strong>${escapeHtml(generatedConfig.meta.configPath)}</strong></span>
               <span>${generatedConfig.resources.length} resource${generatedConfig.resources.length === 1 ? "" : "s"}</span>
-              <span>Built-in auth + global shares table</span>
+              <span>Built-in auth included</span>
             </div>
           </div>
 
@@ -141,36 +189,6 @@ function renderHomePage(generatedConfig) {
           </aside>
         </section>
       </main>
-      <script>
-        (() => {
-          const root = document.documentElement;
-          const button = document.getElementById("theme-toggle");
-          const icon = document.getElementById("theme-toggle-icon");
-          const label = document.getElementById("theme-toggle-label");
-
-          if (!button || !icon || !label) {
-            return;
-          }
-
-          const syncButton = () => {
-            const isDark = root.getAttribute("data-theme") === "dark";
-            button.setAttribute("aria-pressed", String(isDark));
-            icon.textContent = isDark ? "Light" : "Dark";
-            label.textContent = "mode";
-          };
-
-          button.addEventListener("click", () => {
-            const nextTheme = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
-            root.setAttribute("data-theme", nextTheme);
-            try {
-              localStorage.setItem("api-generator-theme", nextTheme);
-            } catch (_error) {}
-            syncButton();
-          });
-
-          syncButton();
-        })();
-      </script>
     </body>
   </html>`;
 }
@@ -184,4 +202,7 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-main();
+main().catch((err) => {
+  console.error(err.message || err);
+  process.exit(1);
+});

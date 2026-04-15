@@ -1,6 +1,12 @@
 const fs = require("fs");
 const path = require("path");
 const Database = require("better-sqlite3");
+const bcrypt = require("bcryptjs");
+
+const DEFAULT_USERS = [
+  { username: "admin", password: "password" },
+  { username: "user", password: "password" },
+];
 
 function initDatabase(projectRoot) {
   const dataDir = path.join(projectRoot, "data");
@@ -48,6 +54,7 @@ function recreateDatabase(projectRoot) {
   }
 
   const db = initDatabase(projectRoot);
+  createDefaultUsers(db);
   db.close();
 
   return dbPath;
@@ -59,7 +66,26 @@ function getDatabasePath(projectRoot) {
   return process.env.DB_PATH || path.join(dataDir, "app.db");
 }
 
+function createDefaultUsers(db) {
+  const existingUsernames = new Set(
+    db.prepare("SELECT username FROM users").all().map((row) => row.username)
+  );
+  const insertUser = db.prepare("INSERT INTO users (username, password_hash) VALUES (?, ?)");
+
+  const insertDefaults = db.transaction((users) => {
+    for (const user of users) {
+      if (existingUsernames.has(user.username)) {
+        continue;
+      }
+      insertUser.run(user.username, bcrypt.hashSync(user.password, 10));
+    }
+  });
+
+  insertDefaults(DEFAULT_USERS);
+}
+
 module.exports = {
+  createDefaultUsers,
   initDatabase,
   recreateDatabase,
 };
