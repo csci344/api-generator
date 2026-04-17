@@ -4,7 +4,7 @@ const { writeSeedArtifacts } = require("./seedArtifacts");
 const { normalizeSeedDir } = require("../runtime/seedDir");
 
 function writeArtifacts(projectRoot, config, seedOptions = {}) {
-  const seedDir = normalizeSeedDir(seedOptions.seedDir, config.meta?.seedDir || "data");
+  const seedDir = normalizeSeedDir(seedOptions.seedDir, config.meta?.seedDir || "data/sample-data");
   const configWithMeta = {
     ...config,
     meta: {

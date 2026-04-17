@@ -61,6 +61,25 @@ async function main() {
   app.get("/api/docs/schema.json", sendGeneratedConfig);
   app.get("/generator-config.json", sendGeneratedConfig);
 
+  const spreadsheetHtmlPath = path.join(projectRoot, "public", "_framework", "data-grid.html");
+
+  function spreadsheetRedirectQuerySuffix(req) {
+    const i = req.originalUrl.indexOf("?");
+    return i === -1 ? "" : req.originalUrl.slice(i);
+  }
+
+  app.get("/spreadsheet", (_req, res) => {
+    res.type("html").sendFile(spreadsheetHtmlPath);
+  });
+
+  app.get("/data-grid.html", (req, res) => {
+    res.redirect(301, `/spreadsheet${spreadsheetRedirectQuerySuffix(req)}`);
+  });
+
+  app.get("/_framework/data-grid.html", (req, res) => {
+    res.redirect(301, `/spreadsheet${spreadsheetRedirectQuerySuffix(req)}`);
+  });
+
   app.use(express.static(path.join(projectRoot, "public")));
 
   app.get("/", (_req, res) => {
@@ -102,6 +121,7 @@ async function main() {
   console.log(
     "GET generated config (for data grid): /api/generator-config  (also /api/schema, /api/docs/schema.json)"
   );
+  console.log("Data spreadsheet UI: /spreadsheet");
 }
 
 async function listenOnAvailablePort(app, requestedPort) {
@@ -150,7 +170,7 @@ function renderHomePage(generatedConfig) {
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <title>API Generator Starter</title>
-      <link rel="stylesheet" href="/styles/home.css" />
+      <link rel="stylesheet" href="/_framework/styles/home.css" />
     </head>
     <body>
       <main class="shell">
@@ -162,7 +182,7 @@ function renderHomePage(generatedConfig) {
             </p>
             <div class="actions">
               <a class="button primary" href="/api/docs">Open Interactive Docs</a>
-              <a class="button secondary" href="/data-grid.html">Data spreadsheet</a>
+              <a class="button secondary" href="/spreadsheet">Data spreadsheet</a>
             </div>
             <div class="hero-meta">
               <span>Generated from <strong>${escapeHtml(generatedConfig.meta.configPath)}</strong></span>

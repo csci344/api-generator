@@ -11,7 +11,11 @@ async function main() {
   const argv = process.argv.slice(2);
   const noSeed = argv.includes("--no-seed");
   const headersOnly = argv.includes("--headers-only");
-  const seedDir = normalizeSeedDir(getCliOption(argv, "--seed-dir"));
+  const config = loadApiConfig(configPath);
+  const seedDir = normalizeSeedDir(
+    getCliOption(argv, "--seed-dir"),
+    config.meta?.seedDir || "data/sample-data"
+  );
   const confirmed = await confirmDestructiveAction(
     argv,
     "Are you sure you want to replace all of the data?"
@@ -22,7 +26,6 @@ async function main() {
     process.exit(0);
   }
 
-  const config = loadApiConfig(configPath);
   writeArtifacts(projectRoot, config, {
     noSeed,
     sampleRows: headersOnly ? 0 : 5,

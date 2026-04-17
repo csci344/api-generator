@@ -86,12 +86,47 @@ const USERS_CSV = [
   "",
 ].join("\n");
 
+function archiveSeedFilesBeforeRewrite(seedDir) {
+  if (!fs.existsSync(seedDir)) {
+    return;
+  }
+
+  const entries = fs.readdirSync(seedDir, { withFileTypes: true });
+  const toArchive = [];
+  for (const entry of entries) {
+    if (!entry.isFile()) {
+      continue;
+    }
+    const { name } = entry;
+    if (name.endsWith(".csv") || name === "order.json" || name === "README.txt") {
+      toArchive.push(name);
+    }
+  }
+
+  if (toArchive.length === 0) {
+    return;
+  }
+
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+  const destDir = path.join(seedDir, "archive", timestamp);
+  fs.mkdirSync(destDir, { recursive: true });
+
+  for (const name of toArchive) {
+    fs.renameSync(path.join(seedDir, name), path.join(destDir, name));
+  }
+}
+
 function buildSeedReadme(seedDirName) {
   return [
     "API Generator Seed Data",
     "=======================",
     "",
     `This folder contains sample CSV files that you can load into your data API.`,
+    "",
+    "When you run `npm run generate` again, previous seed files in this folder are moved into",
+    "`archive/<timestamp>/` so you can recover older versions if needed.",
     "",
     "Built-in accounts in a freshly generated database:",
     "- admin / password",
@@ -125,8 +160,9 @@ function writeSeedArtifacts(projectRoot, config, options = {}) {
     return;
   }
 
-  const seedDirName = normalizeSeedDir(options.seedDir, config.meta?.seedDir || "data");
+  const seedDirName = normalizeSeedDir(options.seedDir, config.meta?.seedDir || "data/sample-data");
   const seedDir = path.join(projectRoot, seedDirName);
+  archiveSeedFilesBeforeRewrite(seedDir);
   fs.mkdirSync(seedDir, { recursive: true });
 
   fs.writeFileSync(path.join(seedDir, "users.csv"), USERS_CSV);

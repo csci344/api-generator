@@ -10,11 +10,11 @@
 const fs = require("fs");
 const path = require("path");
 const bcrypt = require("bcryptjs");
-const { confirmDestructiveAction } = require("../src/runtime/confirm");
-const { initDatabase } = require("../src/runtime/db");
-const { getCliOption, normalizeSeedDir } = require("../src/runtime/seedDir");
+const { confirmDestructiveAction } = require("../runtime/confirm");
+const { initDatabase } = require("../runtime/db");
+const { getCliOption, normalizeSeedDir } = require("../runtime/seedDir");
 
-const projectRoot = path.resolve(__dirname, "..");
+const projectRoot = path.resolve(__dirname, "../..");
 
 function parseCsvLine(line) {
   const out = [];
@@ -234,7 +234,7 @@ async function main() {
   }
 
   const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-  const seedDir = normalizeSeedDir(getCliOption(argv, "--seed-dir"), config.meta?.seedDir || "data");
+  const seedDir = normalizeSeedDir(getCliOption(argv, "--seed-dir"), config.meta?.seedDir || "data/sample-data");
   const orderPath = path.join(projectRoot, seedDir, "order.json");
   if (!fs.existsSync(orderPath)) {
     console.error(

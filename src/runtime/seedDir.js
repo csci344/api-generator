@@ -19,7 +19,7 @@ function getCliOption(argv, flag) {
   return value;
 }
 
-function normalizeSeedDir(value, fallback = "sample-data") {
+function normalizeSeedDir(value, fallback = "data/sample-data") {
   const baseValue = typeof value === "string" && value.trim() ? value.trim() : fallback;
   const normalized = path.normalize(baseValue);
 

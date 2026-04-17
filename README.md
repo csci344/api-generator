@@ -1,75 +1,82 @@
 # API Generator Starter
 
-This project is a starter backend app for a declarative CRUD API generator. Students define their API in `api.config.yaml`, run the generator, and then start the server.
+Edit [`api.config.yaml`](api.config.yaml), run a few commands, and you get a SQLite-backed REST API you can try in the browser.
 
-## What is built in
+**On this page:** [Quick start](#quick-start) · [Going deeper](#going-deeper)
 
-The starter app provides these framework features automatically:
+## Quick start
 
-- user accounts in the `users` table
-- `POST /auth/register`
-- `POST /auth/login`
-- `GET /auth/me`
-- a global `shares` table for shareable resources
-- SQLite-backed storage in `data/app.db`
+You need **Node.js** and **npm** installed.
 
-Students do not need to declare `users` or `shares` in the DSL.
+1. `npm install`
+1. Edit [`api.config.yaml`](api.config.yaml) to describe your resources (the bundled file is a working example).
+1. `npm run validate`
+1. `npm run generate` (the CLI will ask for confirmation; use `npm run generate -- --yes` in scripts)
+1. `npm start`
+1. Open **`/api/docs`** in the browser — use the **same host and port** printed in the terminal (often `http://localhost:3100`).
 
-## How the project is organized
+**Try the API:** each fresh database includes **`admin` / `password`** and **`user` / `password`**. Use **Authorize** in `/api/docs` with a token from `POST /auth/login` when an endpoint requires auth.
 
-This starter is split into three parts:
+**Important:** `npm run generate` **deletes and recreates** [`data/app.db`](data/app.db) and replaces everything under [`generated/`](generated/). Treat it as a full reset, not a small edit.
 
-- `api.config.yaml`: the DSL students edit
-- `generated/`: build output recreated by `npm run generate`
-- `src/`: hand-written app/runtime code
+**Optional:** to load the generated CSV spreadsheets into the database, run `npm run seed` (see [Seed data](#seed-data) below).
 
-Inside `src/`, there are two especially important areas:
+## Going deeper
 
-- `src/generator/` plus `src/cli/generate.js`: code that reads the DSL and writes `generated/`
-- `src/runtime/` plus `src/server.js`: the actual Express app, auth, SQLite setup, and generic CRUD runtime
+### What you get for free
 
-There is also a dedicated hand-written extension point for custom Express work:
+The starter adds (you do **not** declare these in the YAML):
 
-- `src/routes/custom.js`
+- the `users` table and `POST /auth/register`, `POST /auth/login`, `GET /auth/me`
+- a global `shares` table for resources marked shareable in the DSL
+- SQLite in `data/app.db`; seed templates default to `data/sample-data/` when you generate
 
-Students who want to move beyond the generated CRUD API should add new Express endpoints there, not inside `generated/`.
+### Project layout and what to edit
 
-## Student workflow
+Folders at a glance:
 
-1. Edit `api.config.yaml`
-2. Run `npm install`
-3. Run `npm run validate`
-4. Run `npm run generate`
-5. (Optional) Run `npm run seed` to load the sample CSV data directly into SQLite (see [Seed sample data](#seed-sample-data-optional))
-6. Run `npm start`
-7. Open `/api/docs` for interactive API docs and request testing
+- **`api.config.yaml`** — your API description (DSL)
+- **`generated/`** — output of `npm run generate` (do not edit by hand)
+- **`src/`** — framework code; the usual student hook is **`src/routes/custom.js`**
+- **`data/`** — local state (often gitignored): `app.db`, **`sample-data/`** (seed CSVs + `order.json`), **`csv-export/`** (from `npm run export:csv`)
+- **`public/`** — static files: **`_framework/`** (course UI, do not edit), **`student/`** (your assets), **`generated-config.json`** (overwritten on generate)
 
-Important: `npm run generate` regenerates the code and recreates the local SQLite database from scratch. Any existing data in `data/app.db` will be deleted.
+Inside `src/`, the CLIs live under `src/cli/` (`validate.js`, `generate.js`, `seed.js`, `exportCsv.js`, …) and the server in `src/server.js` plus `src/runtime/`.
 
-Important: because `npm run generate` recreates the database from the generated schema, custom schema or data that lives outside the generated model will need a separate migration story later.
+**What you may edit**
 
-## Validate the DSL
+| Path | You should… |
+| --- | --- |
+| `api.config.yaml` | Edit freely — it is the DSL for your API. |
+| `data/sample-data/*.csv` (or your `meta.seedDir` folder) | Edit to customize seed data. On each `npm run generate`, existing root `*.csv`, `order.json`, and `README.txt` are moved into `archive/<timestamp>/` first. |
+| `public/student/**` | Edit — add your own static assets here. |
+| `src/routes/custom.js` | Edit — add custom Express routes here. |
+| `generated/**` | **Do not edit** — recreated by `npm run generate`. |
+| `public/generated-config.json` | **Do not edit** — overwritten by `npm run generate`. |
+| `public/_framework/**` | **Do not edit** — course UI. |
+| `src/**` except `src/routes/custom.js` | **Do not edit** for typical course work. |
+| `data/app.db` | **Recreated** when you generate; not for hand edits. |
+| `data/csv-export/**` | Safe to delete; recreate with `npm run export:csv`. |
 
-Before generating the API, students can validate their DSL file:
+`npm run generate` refreshes `generated/`, `public/generated-config.json`, and `data/app.db`, and unless you pass `--no-seed` it rewrites seed files after archiving the previous root seed files as in the table.
+
+### Validate and the DSL
 
 ```bash
 npm run validate
 ```
 
-This checks:
+The validator checks YAML syntax, resource shape, field types, operations, permission names, relation targets, typed relation fields (foreign keys and nested objects in responses), and `shareable: true` when `owner_or_shared` is used. On success it prints a short summary of your resources plus built-in framework pieces.
 
-- YAML syntax
-- required resource structure
-- valid field types
-- valid CRUD operation names
-- valid permissions policy names
-- typed relation fields (`type: Sneaker`) that resolve to foreign keys and nested objects in API responses
-- relation targets
-- `shareable: true` when `owner_or_shared` is used
+**DSL feature summary**
 
-If the config is valid, the validator prints a short summary of the resources and the built-in framework features that are added automatically.
+- Resources: capitalized `type` (e.g. `Order`), optional `path`, `fields`, `operations`
+- Scalar types: `string`, `text`, `integer`, `number`, `boolean`, `date`, `datetime`, `image_url`
+- Relations: field `type` is the related resource’s `type` (e.g. `type: Sneaker`); column name matches the field; writes use an id, reads return a nested object
+- Permissions per operation: `public`, `user`, `owner`, `owner_or_shared`
+- `shareable: true` for resources that support sharing
 
-### Query Filters
+### Query filters
 
 List endpoints can expose query parameters for selected fields, including relation fields (filter by related record id).
 
@@ -113,9 +120,9 @@ Defaults:
 
 - `string`, `text`, and `image_url` use `contains`
 - `boolean`, `integer`, `number`, `date`, `datetime`, and foreign-key fields use `eq`
-- ownership-enabled resources also support `owner_id` automatically with exact matching
+- ownership-enabled resources also support `owner_id` with exact matching
 
-You can also use the object form to customize the param name or op:
+Object form for custom param name or operator:
 
 ```yaml
 fields:
@@ -126,116 +133,59 @@ fields:
       op: contains
 ```
 
-Examples:
+Examples: `GET /api/photos?title=sunset`, `GET /api/comments?photo=3`, `GET /api/comments?owner_id=1`
 
-- `GET /api/photos?title=sunset`
-- `GET /api/comments?photo=3`
-- `GET /api/comments?owner_id=1`
-
-## Generate the API
+### Generate
 
 ```bash
 npm run generate
 ```
 
-This command now does three things:
+Besides refreshing `generated/`, it recreates **`data/app.db`** from the latest schema and (by default) writes seed CSVs under **`data/sample-data/`** (override with `meta.seedDir` in YAML or `--seed-dir=<dir>`). Do not hand-edit `generated/` — it is build output.
 
-- regenerates the files in `generated/`
-- writes sample **seed CSV** files under `data/` by default (one per resource plus `users.csv` and `order.json`)
-- deletes and recreates the local SQLite database in `data/app.db` based on the latest schema
+**Flags**
 
-Each generated database also includes two built-in login accounts right away:
-- `admin` / `password`
-- `user` / `password`
+- `--no-seed` — skip writing seed CSV templates (nothing is archived in the seed folder that run)
+- `--headers-only` — CSV headers only, no sample rows
+- `--seed-dir=<dir>` — put seed templates in another project-relative directory
 
-This makes the YAML file the source of truth for the starter project, but it also means any local data is reset each time you generate.
-Before it runs, the CLI asks for confirmation. For scripted usage, pass `--yes` to skip the prompt.
-When `npm start` or `npm run dev` finds that the requested port is already in use, the server automatically tries the next available port and prints the chosen URL.
+**Archiving:** before rewriting seeds, existing root `*.csv`, `order.json`, and `README.txt` in the seed directory move to `<seedDir>/archive/<YYYY-MM-DD_HH-mm-ss>/`.
 
-Do not hand-edit files under `generated/`; they are build artifacts and will be overwritten.
+**Scripts:** pass `--yes` to skip the destructive prompt. If `npm start` / `npm run dev` cannot bind the requested port, the server tries the next ports and prints the URL it chose.
 
-Optional flags:
+Custom schema or data outside the generated model is not migrated automatically; that would be a separate story later.
 
-- `--no-seed` — skip writing the CSV seed templates
-- `--headers-only` — write CSV headers only (no sample data rows)
-- `--seed-dir=<dir>` — write the CSV seed templates under a different project-relative directory
+### Seed data
 
-## Seed sample data (optional)
+After `npm run generate`, **`data/sample-data/`** holds CSV files and `order.json`. **`npm run seed`** ([`src/cli/seed.js`](src/cli/seed.js)) loads them into SQLite. Use the same `--seed-dir` or `meta.seedDir` you used for generate if you overrode the default.
 
-After `npm run generate`, the `data/` folder contains spreadsheet-friendly CSV files and the `seed.js` script can insert those rows directly into the local SQLite database. If you generated the files elsewhere with `--seed-dir`, `npm run seed` will reuse that same directory automatically.
+Typical flow: `npm run generate` → `npm run seed` → `npm start`. Both commands ask for confirmation; use `--yes` when automating.
 
-1. Run `npm run generate`
-2. Run `npm run seed`
-3. Start the server when you are ready to browse or test the API: `npm start`
+Built-in users remain `admin` / `password` and `user` / `password`. **`users.csv`** adds demo users `user1`–`user4`; seeding uses **`admin`** as owner for ownership-enabled rows. Passwords are for local dev only.
 
-Both `generate` and `seed` now ask for confirmation before they modify database data. For non-interactive runs, use `--yes`.
+**Foreign keys:** sample rows use `1`, `2`, … in FK columns matching empty-database auto-increment order (see `data/sample-data/order.json` by default). If you inserted rows manually first, fix the CSV or run `npm run generate` again before seeding.
 
-The generated database always includes two built-in users: `admin` / `password` and `user` / `password`. The generated `users.csv` contains extra demo users (`user1` through `user4`) that can be added by running `npm run seed`. During seeding, the built-in `admin` account is treated as the seed owner, so ownership-enabled records are inserted with `admin` as their owner. These passwords are for local development only. Do not reuse these patterns for real accounts.
+**Old layout:** if you still have a top-level `sample-data/` folder from an older template, move its contents into `data/sample-data/` or delete it and run `npm run generate` again.
 
-**Foreign keys:** sample rows use `1`, `2`, ... in FK columns, which match **auto-increment ids** when the database is empty before seeding (same order as `data/order.json` by default). If you add rows manually first, edit the CSV or reset with `npm run generate` before seeding again.
+### Export to CSV
 
-## Data spreadsheet (browser)
-
-The app includes a simple **Tabulator**-based grid at `/data-grid.html` (also linked from the home page). Open that URL **while `npm start` is running** so the page and the API share the same origin. If the server falls back to another port, use the URL printed in the startup log. If you open the HTML from another server (or a `file://` URL), add a query parameter, for example: `data-grid.html?api=http://127.0.0.1:3100`, or set `window.__API_BASE__` in `data-grid.html` before the main script loads.
-
-After you log in with `POST /auth/login` (same credentials you would use from Swagger), you can:
-
-- pick a resource and load rows (`GET`)
-- add rows (`POST`), edit cells (`PATCH`), and delete rows (`DELETE`)
-
-The page also includes a separate **User management** form for creating accounts through `POST /auth/register`. That form is intentionally separate from the spreadsheet grid so built-in auth stays distinct from DSL-generated resources. Passwords are sent once to the server and hashed there; the browser does not store plaintext passwords.
-
-All requests use the **same REST API** as any other client; the page is a convenience UI only. The browser loads schema from `GET /api/generator-config` (with fallbacks; field names and paths come from your last `npm run generate`). If those URLs return 404, stop the server and run `npm start` again from this project so Node picks up the latest `src/server.js`.
-
-To verify the server is the right one, open `/api/openapi.json` on the same host and port where the app started; it should return JSON. The data grid also loads `/generated-config.json` — a static copy of the config written by `npm run generate` into `public/` (so it works even if Express route handlers are out of date). Restart `npm start` after pulling changes.
-
-For local development only; do not expose this pattern unchanged on a public production server without proper security review.
-
-## Interactive docs
-
-The starter app serves Swagger-style interactive docs at:
-
-```text
-http://localhost:<current-port>/api/docs
+```bash
+npm run export:csv
 ```
 
-This page is similar to FastAPI's built-in docs:
+Reads `data/app.db` by default and writes one CSV per table under **`data/csv-export/`** — database snapshots, not the same as editable seed templates in **`data/sample-data/`**. See `npm run export:csv -- --help` for `--out-dir` and `--tables`.
 
-- it lists all generated endpoints
-- it shows request and response schemas
-- it lets students try requests directly in the browser
-- it supports bearer-token auth through the "Authorize" button
+### Try the API in the browser
 
-Useful endpoints:
+**Interactive docs (start here):** open **`/api/docs`** on the same origin as the server. The page lists generated routes, shows schemas, supports **Authorize** with a bearer token, and is similar in spirit to FastAPI’s docs. Related JSON: `/api/openapi.json`, `/api/docs.json`. Routes you add in `src/routes/custom.js` do not appear here unless you document them separately.
 
-- `/api/docs`: interactive tester
-- `/api/openapi.json`: raw OpenAPI document
-- `/api/docs.json`: simple generated route summary
+**Data spreadsheet:** Tabulator UI at **`/spreadsheet`** (Express serves the same page as `public/_framework/data-grid.html`; `/data-grid.html` and `/_framework/data-grid.html` redirect here). Use it while `npm start` is running on the **same host and port** so API calls stay same-origin. If the page is opened elsewhere, use e.g. `/spreadsheet?api=http://127.0.0.1:3100` or set `window.__API_BASE__` before the script loads. Log in like Swagger, then browse/edit resources; there is also a small **User management** form for `POST /auth/register`. The grid reads `GET /api/generator-config` (with fallbacks) and `/generated-config.json` from `public/`. If you see 404s, restart `npm start` from this repo.
 
-Custom endpoints added in `src/routes/custom.js` are hand-written Express routes. They are not generated from the DSL, and they will not automatically appear in the generated docs unless you document them separately.
+Local development only — do not ship this pattern unchanged to production without a security review.
 
-## Student progression
+### Examples (curl)
 
-One intended path through this starter is:
-
-1. define app data in `api.config.yaml`
-2. generate a CRUD backend
-3. explore and test it with Swagger and the data grid
-4. add hand-written Express routes in `src/routes/custom.js` when ready for more backend control
-
-## Current DSL features
-
-- resources identified by capitalized `type` (for example `Order`), optional explicit `path`, `fields`, and `operations`
-- scalar field types: `string`, `text`, `integer`, `number`, `boolean`, `date`, `datetime`, `image_url`
-- relation fields: use the related resource’s `type` as the field’s `type` (for example `name: sneaker`, `type: Sneaker`). The database column name matches the field name; writes send an id, reads return a nested object.
-- per-operation permissions policies:
-  - `public`
-  - `user`
-  - `owner`
-  - `owner_or_shared`
-- `shareable: true`
-
-## Example auth flow
+Optional `curl` flows (replace host/port with yours):
 
 Register:
 
@@ -253,16 +203,16 @@ curl -X POST http://localhost:3100/auth/login \
   -d '{"username":"alice","password":"password"}'
 ```
 
-Create a protected record with the returned token (paths match your `api.config.yaml`; this example matches the bundled Sneaker resource):
+Create a record with the token (paths and body fields must match your `api.config.yaml`; example matches bundled **Sneaker** — `brand` is a foreign key, use an existing brand id):
 
 ```bash
 curl -X POST http://localhost:3100/api/sneakers \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
-  -d '{"name":"Trail Runner","brand":"Demo","price":129.99,"photo":"https://example.com/photo.jpg","size":10,"condition":"new","is_available":true,"description":"Demo sneaker"}'
+  -d '{"name":"Trail Runner","brand":1,"price":129.99,"photo":"https://example.com/photo.jpg","size":10,"is_available":true,"description":"Demo sneaker"}'
 ```
 
-Share a record with another user (only for resources that set `shareable: true` in the DSL; replace the path with that resource’s `path`):
+Share a record (only for `shareable: true` resources; replace path and ids):
 
 ```bash
 curl -X POST http://localhost:3100/api/your-shareable-resource/1/shares \
@@ -271,6 +221,12 @@ curl -X POST http://localhost:3100/api/your-shareable-resource/1/shares \
   -d '{"username":"bob"}'
 ```
 
-## Railway note
+### Where next
 
-This starter app is currently optimized for local SQLite development. The code structure is intentionally small so a Postgres adapter can be added later behind `DATABASE_URL` for optional Railway deployment.
+1. Shape your data in `api.config.yaml`
+2. Generate and try **`/api/docs`** (and optionally **`/spreadsheet`**)
+3. Add custom routes in `src/routes/custom.js` when you need behavior the DSL does not cover
+
+### Other notes
+
+This starter targets **local SQLite**. The layout is small on purpose so a **Postgres** adapter could sit behind `DATABASE_URL` later (e.g. Railway) — not included today.

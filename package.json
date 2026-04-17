@@ -6,7 +6,7 @@
   "scripts": {
     "validate": "node src/cli/validate.js",
     "generate": "node src/cli/generate.js",
-    "seed": "node seed/seed.js",
+    "seed": "node src/cli/seed.js",
     "export:csv": "node src/cli/exportCsv.js",
     "start": "node src/server.js",
     "dev": "nodemon --watch src --watch generated --ext js,json src/server.js"
