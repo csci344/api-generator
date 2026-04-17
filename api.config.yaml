@@ -1,5 +1,5 @@
 resources:
-  - name: sneakers
+  - type: Sneaker
     path: /api/sneakers
     operations: [list, retrieve, create, update, delete]
     fields:
@@ -8,21 +8,18 @@ resources:
         required: true
         query: true
       - name: brand
-        type: string
-        required: true
+        type: Brand
         query: true
       - name: price
         type: number
         required: true
         query: true
-      - name: image_url
+      - name: photo
         type: image_url
         required: true
       - name: size
         type: integer
         query: true
-      - name: condition
-        type: string
       - name: is_available
         type: boolean
         query: true
@@ -35,15 +32,29 @@ resources:
       update: owner
       delete: owner
 
-  - name: favorites
+  - type: Brand
+    path: /api/brands
+    operations: [list, retrieve, create, update, delete]
+    fields:
+      - name: name
+        type: string
+        required: true
+      - name: description
+        type: text
+    permissions:
+      list: public
+      retrieve: public
+      create: user
+      update: owner
+      delete: owner
+  - type: Favorite
     path: /api/favorites
     operations: [list, retrieve, create, update, delete]
     fields:
       - name: note
         type: string
-    relations:
       - name: sneaker
-        references: sneakers
+        type: Sneaker
         required: true
         query: true
     permissions:
@@ -53,7 +64,7 @@ resources:
       update: owner
       delete: owner
 
-  - name: orders
+  - type: Order
     path: /api/orders
     operations: [list, retrieve, create, update, delete]
     fields:
@@ -72,9 +83,8 @@ resources:
         required: true
       - name: created_at
         type: datetime
-    relations:
       - name: sneaker
-        references: sneakers
+        type: Sneaker
         required: true
         query: true
     permissions:

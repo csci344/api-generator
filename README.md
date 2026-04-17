@@ -63,7 +63,7 @@ This checks:
 - valid field types
 - valid CRUD operation names
 - valid permissions policy names
-- foreign-key references to other resources
+- typed relation fields (`type: Sneaker`) that resolve to foreign keys and nested objects in API responses
 - relation targets
 - `shareable: true` when `owner_or_shared` is used
 
@@ -71,26 +71,48 @@ If the config is valid, the validator prints a short summary of the resources an
 
 ### Query Filters
 
-List endpoints can expose query parameters for selected fields and relations.
+List endpoints can expose query parameters for selected fields, including relation fields (filter by related record id).
 
 Use `query: true` for the default behavior:
 
 ```yaml
-fields:
-  - name: title
-    type: string
-    query: true
+resources:
+  - type: Photo
+    path: /api/photos
+    operations: [list, retrieve, create, update, delete]
+    fields:
+      - name: title
+        type: string
+        query: true
+    permissions:
+      list: public
+      retrieve: public
+      create: user
+      update: owner
+      delete: owner
 
-relations:
-  - name: photo
-    references: photos
-    query: true
+  - type: Comment
+    path: /api/comments
+    operations: [list, retrieve, create, update, delete]
+    fields:
+      - name: body
+        type: text
+      - name: photo
+        type: Photo
+        required: true
+        query: true
+    permissions:
+      list: public
+      retrieve: public
+      create: user
+      update: owner
+      delete: owner
 ```
 
 Defaults:
 
 - `string`, `text`, and `image_url` use `contains`
-- `boolean`, `integer`, `number`, `date`, `datetime`, and relation foreign keys use `eq`
+- `boolean`, `integer`, `number`, `date`, `datetime`, and foreign-key fields use `eq`
 - ownership-enabled resources also support `owner_id` automatically with exact matching
 
 You can also use the object form to customize the param name or op:
@@ -107,7 +129,7 @@ fields:
 Examples:
 
 - `GET /api/photos?title=sunset`
-- `GET /api/comments?photo_id=3`
+- `GET /api/comments?photo=3`
 - `GET /api/comments?owner_id=1`
 
 ## Generate the API
@@ -203,15 +225,15 @@ One intended path through this starter is:
 
 ## Current DSL features
 
-- resources with `name`, `path`, `fields`, and `operations`
-- basic field types: `string`, `text`, `integer`, `number`, `boolean`, `date`, `datetime`
+- resources identified by capitalized `type` (for example `Order`), optional explicit `path`, `fields`, and `operations`
+- scalar field types: `string`, `text`, `integer`, `number`, `boolean`, `date`, `datetime`, `image_url`
+- relation fields: use the related resource’s `type` as the field’s `type` (for example `name: sneaker`, `type: Sneaker`). The database column name matches the field name; writes send an id, reads return a nested object.
 - per-operation permissions policies:
   - `public`
   - `user`
   - `owner`
   - `owner_or_shared`
 - `shareable: true`
-- basic relations like `name: genre` + `references: genres` (included in responses by default)
 
 ## Example auth flow
 
@@ -231,19 +253,19 @@ curl -X POST http://localhost:3100/auth/login \
   -d '{"username":"alice","password":"password"}'
 ```
 
-Create a protected record with the returned token:
+Create a protected record with the returned token (paths match your `api.config.yaml`; this example matches the bundled Sneaker resource):
 
 ```bash
-curl -X POST http://localhost:3100/api/memory-entries \
+curl -X POST http://localhost:3100/api/sneakers \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
-  -d '{"title":"North Carolina Arboretum","description":"Spring walk"}'
+  -d '{"name":"Trail Runner","brand":"Demo","price":129.99,"photo":"https://example.com/photo.jpg","size":10,"condition":"new","is_available":true,"description":"Demo sneaker"}'
 ```
 
-Share a record with another user:
+Share a record with another user (only for resources that set `shareable: true` in the DSL; replace the path with that resource’s `path`):
 
 ```bash
-curl -X POST http://localhost:3100/api/memory-entries/1/shares \
+curl -X POST http://localhost:3100/api/your-shareable-resource/1/shares \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -d '{"username":"bob"}'

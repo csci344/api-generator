@@ -143,12 +143,23 @@
     return { res, data };
   }
 
+  /** Full GET list URL (with query) for the current resource and filter inputs; empty if no resource. */
+  function getCurrentListUrlForStatus() {
+    if (!state.resource) {
+      return "";
+    }
+    const path = buildListUrl(state.resource);
+    return path ? apiUrl(path) : "";
+  }
+
   function setStatus(message, kind) {
     const el = document.getElementById("status");
     if (!el) {
       return;
     }
-    el.textContent = message || "";
+    const trimmed = message == null ? "" : String(message);
+    const url = trimmed ? getCurrentListUrlForStatus() : "";
+    el.textContent = url ? `${trimmed} — ${url}` : trimmed;
     el.className = "status" + (kind ? ` ${kind}` : "");
   }
 
@@ -173,6 +184,11 @@
 
   function getAllResources() {
     return Array.isArray(state.schema?.resources) ? state.schema.resources : [];
+  }
+
+  /** Scalar storage for validation and editors (relation fields store ids as integers). */
+  function fieldStorageType(field) {
+    return field && (field.storageType || field.type);
   }
 
   function getVisibleResources() {
@@ -252,6 +268,57 @@
     }
   }
 
+  function getFilterPanel() {
+    return document.getElementById("filter-panel");
+  }
+
+  function isFilterPanelOpen() {
+    const panel = getFilterPanel();
+    return Boolean(panel && !panel.hidden);
+  }
+
+  function closeFilterPanelIfOpen() {
+    const panel = getFilterPanel();
+    const btn = document.getElementById("filter-open-btn");
+    if (panel) {
+      panel.hidden = true;
+    }
+    if (btn) {
+      btn.setAttribute("aria-expanded", "false");
+    }
+  }
+
+  function toggleFilterPanel() {
+    const panel = getFilterPanel();
+    const btn = document.getElementById("filter-open-btn");
+    if (!panel || !btn) {
+      return;
+    }
+    const opening = panel.hidden;
+    panel.hidden = !opening;
+    btn.setAttribute("aria-expanded", opening ? "true" : "false");
+  }
+
+  function syncFilterOpenButtonVisibility() {
+    const filterOpenBtn = document.getElementById("filter-open-btn");
+    if (!filterOpenBtn) {
+      return;
+    }
+    const loggedIn = Boolean(getToken());
+    filterOpenBtn.hidden =
+      !loggedIn || !state.resource || getQueryFilters(state.resource).length === 0;
+  }
+
+  /** Row actions + view toggle: only after a resource is chosen in the dropdown. */
+  function syncToolbarActionsVisibility() {
+    const wrap = document.getElementById("toolbar-actions");
+    const sel = document.getElementById("resource-select");
+    if (!wrap || !sel) {
+      return;
+    }
+    wrap.hidden = !sel.value;
+  }
+
   function resetGridState() {
     if (state.table) {
       state.table.destroy();
@@ -262,6 +329,7 @@
     state.userOptions = [];
     state.loadedRows = [];
     state.loadedRowsRaw = [];
+    closeFilterPanelIfOpen();
     renderFilterControls(null);
     renderJsonView();
   }
@@ -288,14 +356,14 @@
 
     for (const resource of visibleResources) {
       const opt = document.createElement("option");
-      opt.value = resource.name;
+      opt.value = resource.type;
       opt.textContent = loggedIn
-        ? `${resource.name} (${resource.path})`
-        : `${resource.name} (public)`;
+        ? `${resource.type} (${resource.path})`
+        : `${resource.type} (public)`;
       sel.appendChild(opt);
     }
 
-    const selected = visibleResources.some((resource) => resource.name === preferredValue)
+    const selected = visibleResources.some((resource) => resource.type === preferredValue)
       ? preferredValue
       : "";
     sel.value = selected;
@@ -313,11 +381,8 @@
     const resourceControls = document.getElementById("resource-controls");
     const gridWrap = document.getElementById("grid-wrap");
     const jsonWrap = document.getElementById("json-wrap");
-    const refreshBtn = document.getElementById("refresh-btn");
     const addRowBtn = document.getElementById("add-row-btn");
     const viewToggle = document.getElementById("view-toggle");
-    const filterControls = document.getElementById("filter-controls");
-
     if (loginForm) {
       loginForm.hidden = loggedIn;
     }
@@ -330,13 +395,14 @@
     if (viewToggle) {
       viewToggle.hidden = !loggedIn;
     }
-    if (filterControls) {
-      filterControls.hidden = !loggedIn || !state.resource || getQueryFilters(state.resource).length === 0;
+    syncFilterOpenButtonVisibility();
+    if (!loggedIn || !state.resource || getQueryFilters(state.resource).length === 0) {
+      closeFilterPanelIfOpen();
     }
+    syncToolbarActionsVisibility();
+    syncFilterActiveUi();
     updateViewModeUi({ loggedIn, gridWrap, jsonWrap, addRowBtn });
-    if (refreshBtn) {
-      refreshBtn.hidden = visibleResources.length === 0;
-    }
+   
 
     if (loggedIn) {
       setTokenHint(
@@ -360,7 +426,8 @@
     const gridWrap = elements.gridWrap || document.getElementById("grid-wrap");
     const jsonWrap = elements.jsonWrap || document.getElementById("json-wrap");
     const addRowBtn = elements.addRowBtn || document.getElementById("add-row-btn");
-    const viewModeSelect = document.getElementById("view-mode-select");
+    const tableViewBtn = document.getElementById("view-mode-table-btn");
+    const codeViewBtn = document.getElementById("view-mode-code-btn");
     const showJson = loggedIn && state.viewMode === "json";
     const showSpreadsheet = loggedIn && state.viewMode !== "json";
 
@@ -373,8 +440,12 @@
     if (addRowBtn) {
       addRowBtn.hidden = !loggedIn || state.viewMode === "json";
     }
-    if (viewModeSelect) {
-      viewModeSelect.value = state.viewMode;
+    if (tableViewBtn && codeViewBtn) {
+      const json = state.viewMode === "json";
+      tableViewBtn.setAttribute("aria-pressed", json ? "false" : "true");
+      codeViewBtn.setAttribute("aria-pressed", json ? "true" : "false");
+      tableViewBtn.classList.toggle("is-active", !json);
+      codeViewBtn.classList.toggle("is-active", json);
     }
     if (showJson) {
       renderJsonView();
@@ -438,40 +509,44 @@
   }
 
   function renderFilterControls(resource) {
-    const wrap = document.getElementById("filter-controls");
     const fieldsWrap = document.getElementById("filter-fields");
-    if (!wrap || !fieldsWrap) {
+    if (!fieldsWrap) {
       return;
     }
 
     fieldsWrap.innerHTML = "";
     const queryFilters = getQueryFilters(resource);
-    const loggedIn = Boolean(getToken());
-    wrap.hidden = !loggedIn || !resource || queryFilters.length === 0;
 
     if (!resource || queryFilters.length === 0) {
+      closeFilterPanelIfOpen();
       updateFilterRequestLink("");
+      syncFilterOpenButtonVisibility();
+      syncFilterActiveUi();
       return;
     }
 
-    const values = getFilterValues(resource.name);
+    const values = getFilterValues(resource.type);
     for (const filter of queryFilters) {
       fieldsWrap.appendChild(buildFilterControl(resource, filter, values[filter.param] ?? ""));
     }
+    syncFilterOpenButtonVisibility();
+    syncFilterActiveUi();
   }
 
   function buildFilterControl(resource, filter, currentValue) {
     const label = document.createElement("label");
     label.htmlFor = filterControlId(resource, filter);
-    label.textContent = filter.param;
-
+    const text = document.createElement("span");
+    text.className = "filter-field-label";
+    text.textContent = `${filter.param}:`;
     const control = createFilterInput(resource, filter, currentValue);
+    label.appendChild(text);
     label.appendChild(control);
     return label;
   }
 
   function createFilterInput(_resource, filter, currentValue) {
-    const id = filterControlId(state.resource || { name: "resource" }, filter);
+    const id = filterControlId(state.resource || { type: "resource" }, filter);
 
     if (filter.fieldName === "owner_id") {
       const select = document.createElement("select");
@@ -485,7 +560,7 @@
       return select;
     }
 
-    if (filter.references) {
+    if (filter.relation) {
       const select = document.createElement("select");
       select.id = id;
       select.dataset.queryParam = filter.param;
@@ -497,7 +572,7 @@
       return select;
     }
 
-    if (filter.type === "boolean") {
+    if (filter.storageType === "boolean" || filter.type === "boolean") {
       const select = document.createElement("select");
       select.id = id;
       select.dataset.queryParam = filter.param;
@@ -513,9 +588,10 @@
     input.dataset.queryParam = filter.param;
     input.placeholder = filterPlaceholder(filter);
     input.value = String(currentValue || "");
-    if (filter.type === "integer" || filter.type === "number") {
+    const numType = filter.storageType || filter.type;
+    if (numType === "integer" || numType === "number") {
       input.type = "number";
-      input.step = filter.type === "integer" ? "1" : "any";
+      input.step = numType === "integer" ? "1" : "any";
     } else {
       input.type = "text";
     }
@@ -523,7 +599,7 @@
   }
 
   function filterControlId(resource, filter) {
-    return `filter-${resource.name}-${filter.param}`.replace(/[^a-zA-Z0-9_-]/g, "-");
+    return `filter-${resource.type}-${filter.param}`.replace(/[^a-zA-Z0-9_-]/g, "-");
   }
 
   function filterPlaceholder(filter) {
@@ -558,12 +634,44 @@
     });
   }
 
+  function hasActiveFilters(resource) {
+    if (!resource || getQueryFilters(resource).length === 0) {
+      return false;
+    }
+    const values = getFilterValues(resource.type);
+    for (const filter of getQueryFilters(resource)) {
+      const v = values[filter.param];
+      if (v != null && String(v).trim() !== "") {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function syncFilterActiveUi() {
+    const resource = state.resource;
+    const clearBtn = document.getElementById("filter-clear-toolbar-btn");
+    const openBtn = document.getElementById("filter-open-btn");
+    const filtersAvailable = Boolean(
+      resource && getToken() && getQueryFilters(resource).length > 0
+    );
+    const active = Boolean(filtersAvailable && hasActiveFilters(resource));
+
+    if (clearBtn) {
+      clearBtn.hidden = !(filtersAvailable && active);
+    }
+    if (openBtn && !openBtn.hidden) {
+      openBtn.classList.toggle("is-filter-active", active);
+      openBtn.setAttribute("aria-label", active ? "Filters (active)" : "Filters");
+    }
+  }
+
   function buildListUrl(resource) {
     if (!resource) {
       return "";
     }
     const params = new URLSearchParams();
-    const values = captureFilterValues(resource.name);
+    const values = captureFilterValues(resource.type);
     for (const filter of getQueryFilters(resource)) {
       const value = values[filter.param];
       if (value != null && String(value).trim() !== "") {
@@ -686,10 +794,10 @@
   async function loadFkOptions(resource) {
     state.fkOptions = {};
     for (const field of resource.fields || []) {
-      if (!field.references?.resource) {
+      if (!field.relation?.resourceType) {
         continue;
       }
-      const target = state.schema.resources.find((x) => x.name === field.references.resource);
+      const target = state.schema.resources.find((x) => x.type === field.relation.resourceType);
       if (!target) {
         continue;
       }
@@ -729,7 +837,9 @@
   }
 
   function fkLabel(row, target) {
-    const strField = (target.fields || []).find((f) => f.type === "string" || f.type === "text");
+    const strField = (target.fields || []).find(
+      (f) => !f.relation && (f.type === "string" || f.type === "text")
+    );
     if (strField && row[strField.name] != null) {
       return `${row.id}: ${row[strField.name]}`;
     }
@@ -740,7 +850,7 @@
     if (value === null || value === undefined) {
       return value;
     }
-    if (field.type === "boolean" && (value === 0 || value === 1)) {
+    if (fieldStorageType(field) === "boolean" && (value === 0 || value === 1)) {
       return Boolean(value);
     }
     return value;
@@ -821,7 +931,7 @@
       }
 
       const opts = state.fkOptions[field.name];
-      if (field.references && Array.isArray(opts) && opts.length > 0) {
+      if (field.relation && Array.isArray(opts) && opts.length > 0) {
         const valuesMap = {};
         for (const o of opts) {
           valuesMap[o.value] = o.label;
@@ -842,7 +952,7 @@
   }
 
   function pickEditor(field) {
-    switch (field.type) {
+    switch (fieldStorageType(field)) {
       case "boolean":
         return "tickCross";
       case "integer":
@@ -861,7 +971,7 @@
     if (value === null || value === undefined) {
       return "";
     }
-    if (field.type === "boolean") {
+    if (fieldStorageType(field) === "boolean") {
       return value === true || value === 1 ? "✓" : "✗";
     }
     if (field.type === "image_url") {
@@ -909,7 +1019,8 @@
     if (value === "" || value === undefined) {
       return null;
     }
-    if (field.type === "boolean") {
+    const st = fieldStorageType(field);
+    if (st === "boolean") {
       if (value === "true" || value === true || value === 1) {
         return true;
       }
@@ -918,14 +1029,14 @@
       }
       return Boolean(value);
     }
-    if (field.type === "integer") {
+    if (st === "integer") {
       const n =
         typeof value === "number" && Number.isFinite(value)
           ? Math.trunc(value)
           : parseInt(String(value).trim(), 10);
       return Number.isFinite(n) ? n : null;
     }
-    if (field.type === "number") {
+    if (st === "number") {
       const n = typeof value === "number" ? value : parseFloat(String(value).trim().replace(/,/g, ""));
       return Number.isFinite(n) ? n : null;
     }
@@ -971,7 +1082,7 @@
       setStatus("Log in to delete rows.", "error");
       return;
     }
-    if (!window.confirm(`Delete ${resource.name} #${id}?`)) {
+    if (!window.confirm(`Delete ${resource.type} #${id}?`)) {
       return;
     }
     try {
@@ -1080,24 +1191,10 @@
       row.owner && typeof row.owner === "object"
         ? row.owner
         : null;
-    for (const rel of resource.relations || []) {
-      if (rel.kind !== "belongsTo") {
-        continue;
-      }
-      const nested = row[rel.name];
-      if (
-        nested &&
-        typeof nested === "object" &&
-        nested.id != null &&
-        (row[rel.localField] === undefined || row[rel.localField] === null)
-      ) {
-        row[rel.localField] = nested.id;
-      }
-    }
     for (const field of resource.fields) {
       const nested = row[field.name];
       if (
-        field.references &&
+        field.relation &&
         nested &&
         typeof nested === "object" &&
         nested.id != null
@@ -1118,99 +1215,103 @@
     return flat;
   }
 
-  async function loadTable(resourceName) {
-    const resource = state.schema.resources.find((r) => r.name === resourceName);
+  async function loadTable(resourceType) {
+    const resource = state.schema.resources.find((r) => r.type === resourceType);
     if (!resource) {
       return;
     }
     state.resource = resource;
 
-    if (needsAuthForRead(resource) && !getToken()) {
-      setStatus("This list requires login. Sign in above.", "error");
-    } else {
-      setStatus("");
-    }
-
-    await loadFkOptions(resource);
-    await loadUserOptions();
-    renderFilterControls(resource);
-    const listPath = buildListUrl(resource);
-    updateFilterRequestLink(listPath);
-
     try {
-      await ensureTabulator();
-    } catch (e) {
-      setStatus(e.message || String(e), "error");
-      return;
-    }
+      if (needsAuthForRead(resource) && !getToken()) {
+        setStatus("This list requires login. Sign in above.", "error");
+      } else {
+        setStatus("");
+      }
 
-    if (state.table) {
-      state.table.destroy();
-      state.table = null;
-    }
+      await loadFkOptions(resource);
+      await loadUserOptions();
+      renderFilterControls(resource);
+      const listPath = buildListUrl(resource);
+      updateFilterRequestLink(listPath);
 
-    const cols = buildColumns(resource);
+      try {
+        await ensureTabulator();
+      } catch (e) {
+        setStatus(e.message || String(e), "error");
+        return;
+      }
 
-    state.table = new Tabulator("#data-table", {
-      height: 420,
-      layout: "fitColumns",
-      placeholder: "No rows yet. Use “Add row”.",
-      editable: true,
-      columns: cols,
-      rowFormatter: (row) => {
-        const element = row.getElement();
-        element.classList.remove("record-read-only", "record-patchable");
-        element.classList.add(isRowPatchable(resource, row.getData()) ? "record-patchable" : "record-read-only");
-      },
-    });
+      if (state.table) {
+        state.table.destroy();
+        state.table = null;
+      }
 
-    /*
-     * Tabulator does not use DOM "input"/"change" on <td> — edits commit on blur/Enter and fire cellEdited.
-     * Prefer .on("cellEdited") over the constructor option; it is wired reliably across Tabulator 6.x.
-     */
-    state.table.on("cellEdited", (cell) => {
-      void (async () => {
-        if (suppressCellEdit > 0) {
-          return;
-        }
-        try {
-          const field = cell.getField();
-          const row = cell.getRow();
-          const data = row.getData();
-          if (field === "_del" || field === "id") {
+      const cols = buildColumns(resource);
+
+      state.table = new Tabulator("#data-table", {
+        height: 420,
+        layout: "fitColumns",
+        placeholder: "No rows yet. Use “Add row”.",
+        editable: true,
+        columns: cols,
+        rowFormatter: (row) => {
+          const element = row.getElement();
+          element.classList.remove("record-read-only", "record-patchable");
+          element.classList.add(isRowPatchable(resource, row.getData()) ? "record-patchable" : "record-read-only");
+        },
+      });
+
+      /*
+       * Tabulator does not use DOM "input"/"change" on <td> — edits commit on blur/Enter and fire cellEdited.
+       * Prefer .on("cellEdited") over the constructor option; it is wired reliably across Tabulator 6.x.
+       */
+      state.table.on("cellEdited", (cell) => {
+        void (async () => {
+          if (suppressCellEdit > 0) {
             return;
           }
-          if (data._pending) {
-            await saveNewRow(row);
-            return;
+          try {
+            const field = cell.getField();
+            const row = cell.getRow();
+            const data = row.getData();
+            if (field === "_del" || field === "id") {
+              return;
+            }
+            if (data._pending) {
+              await saveNewRow(row);
+              return;
+            }
+            await patchCell(resource, row, field, cell.getValue());
+          } catch (err) {
+            setStatus(err?.message || String(err), "error");
           }
-          await patchCell(resource, row, field, cell.getValue());
-        } catch (err) {
-          setStatus(err?.message || String(err), "error");
-        }
-      })();
-    });
+        })();
+      });
 
-    if (needsAuthForRead(resource) && !getToken()) {
-      state.loadedRows = [];
-      state.loadedRowsRaw = [];
-      state.table.setData([]);
-      renderJsonView();
-      return;
-    }
+      if (needsAuthForRead(resource) && !getToken()) {
+        state.loadedRows = [];
+        state.loadedRowsRaw = [];
+        state.table.setData([]);
+        renderJsonView();
+        return;
+      }
 
-    const { res, data } = await apiFetch(listPath, { method: "GET" });
-    if (!res.ok) {
-      setStatus(data?.error || `List failed (${res.status})`, "error");
-      state.loadedRows = [];
-      state.loadedRowsRaw = [];
-      state.table.setData([]);
-      renderJsonView();
-      return;
+      const { res, data } = await apiFetch(listPath, { method: "GET" });
+      if (!res.ok) {
+        setStatus(data?.error || `List failed (${res.status})`, "error");
+        state.loadedRows = [];
+        state.loadedRowsRaw = [];
+        state.table.setData([]);
+        renderJsonView();
+        return;
+      }
+      setLoadedRowsFromApi(resource, Array.isArray(data) ? data : []);
+      state.table.setData(state.loadedRows);
+      setStatus(`Loaded ${state.loadedRows.length} row(s).`, "ok");
+    } finally {
+      syncFilterActiveUi();
     }
-    setLoadedRowsFromApi(resource, Array.isArray(data) ? data : []);
-    state.table.setData(state.loadedRows);
-    setStatus(`Loaded ${state.loadedRows.length} row(s).`, "ok");
   }
 
   async function applyAuthToken(token, message) {
@@ -1219,7 +1320,7 @@
     if (passwordInput) {
       passwordInput.value = "";
     }
-    const preferredValue = document.getElementById("resource-select")?.value || state.resource?.name || "";
+    const preferredValue = document.getElementById("resource-select")?.value || state.resource?.type || "";
     try {
       const userOk = await syncCurrentUser();
       if (!userOk) {
@@ -1278,10 +1379,12 @@
     });
 
     document.getElementById("resource-select").addEventListener("change", (e) => {
-      if (state.resource?.name) {
-        captureFilterValues(state.resource.name);
+      if (state.resource?.type) {
+        captureFilterValues(state.resource.type);
       }
+      closeFilterPanelIfOpen();
       const v = e.target.value;
+      syncToolbarActionsVisibility();
       if (v) {
         loadTable(v);
       } else {
@@ -1290,36 +1393,84 @@
       }
     });
 
-    document.getElementById("refresh-btn").addEventListener("click", () => {
-      const v = document.getElementById("resource-select").value;
-      if (v) {
-        loadTable(v);
-      }
+    document.getElementById("view-mode-table-btn").addEventListener("click", () => {
+      setViewMode("spreadsheet");
+    });
+    document.getElementById("view-mode-code-btn").addEventListener("click", () => {
+      setViewMode("json");
     });
 
-    document.getElementById("view-mode-select").addEventListener("change", (e) => {
-      setViewMode(e.target.value);
+    const filterOpenBtn = document.getElementById("filter-open-btn");
+    if (filterOpenBtn) {
+      filterOpenBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleFilterPanel();
+      });
+    }
+    document.getElementById("filter-close-btn").addEventListener("click", () => {
+      closeFilterPanelIfOpen();
+    });
+
+    const filterClearToolbarBtn = document.getElementById("filter-clear-toolbar-btn");
+    if (filterClearToolbarBtn) {
+      filterClearToolbarBtn.addEventListener("click", () => {
+        if (state.resource) {
+          clearFilterValues(state.resource.type);
+          closeFilterPanelIfOpen();
+          void loadTable(state.resource.type);
+        }
+      });
+    }
+
+    const filterFieldsEl = document.getElementById("filter-fields");
+    if (filterFieldsEl) {
+      const onFilterFieldInput = () => {
+        if (state.resource) {
+          captureFilterValues(state.resource.type);
+          syncFilterActiveUi();
+        }
+      };
+      filterFieldsEl.addEventListener("input", onFilterFieldInput);
+      filterFieldsEl.addEventListener("change", onFilterFieldInput);
+    }
+
+    document.addEventListener("click", (e) => {
+      const wrap = document.getElementById("filter-dropdown");
+      if (!wrap || !e.target || wrap.contains(e.target)) {
+        return;
+      }
+      closeFilterPanelIfOpen();
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape" || !isFilterPanelOpen()) {
+        return;
+      }
+      e.preventDefault();
+      closeFilterPanelIfOpen();
     });
 
     document.getElementById("apply-filters-btn").addEventListener("click", () => {
       if (state.resource) {
-        captureFilterValues(state.resource.name);
-        loadTable(state.resource.name);
+        captureFilterValues(state.resource.type);
+        closeFilterPanelIfOpen();
+        loadTable(state.resource.type);
       }
     });
 
     document.getElementById("clear-filters-btn").addEventListener("click", () => {
       if (state.resource) {
-        clearFilterValues(state.resource.name);
-        loadTable(state.resource.name);
+        clearFilterValues(state.resource.type);
+        loadTable(state.resource.type);
       }
     });
 
     document.getElementById("filter-fields").addEventListener("keydown", (e) => {
       if (e.key === "Enter" && state.resource) {
         e.preventDefault();
-        captureFilterValues(state.resource.name);
-        loadTable(state.resource.name);
+        captureFilterValues(state.resource.type);
+        closeFilterPanelIfOpen();
+        loadTable(state.resource.type);
       }
     });
 
@@ -1335,7 +1486,7 @@
       }
       const blank = { _pending: true };
       for (const f of r.fields) {
-        blank[f.name] = f.type === "boolean" ? false : "";
+        blank[f.name] = fieldStorageType(f) === "boolean" ? false : "";
       }
       Promise.resolve(state.table.addRow(blank, true));
       setStatus("New row: fill cells, then edit any cell to save (or Tab out).", "ok");

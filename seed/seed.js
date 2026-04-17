@@ -70,7 +70,8 @@ function coerceValue(field, raw) {
   if (s === "") {
     return undefined;
   }
-  switch (field.type) {
+  const storageType = field.storageType || field.type;
+  switch (storageType) {
     case "boolean": {
       const lower = s.toLowerCase();
       if (lower === "true" || s === "1") {
@@ -114,7 +115,7 @@ function rowToBody(resource, row) {
     const value = coerceValue(field, raw);
     if (value === undefined) {
       if (field.required) {
-        throw new Error(`Missing required field ${resource.name}.${field.name}`);
+        throw new Error(`Missing required field ${resource.type}.${field.name}`);
       }
       continue;
     }
@@ -133,8 +134,8 @@ function normalizeValue(type, value) {
   return value;
 }
 
-function findResource(config, name) {
-  return config.resources.find((r) => r.name === name);
+function findResource(config, resourceType) {
+  return config.resources.find((r) => r.type === resourceType);
 }
 
 async function insertUsers(db, userRows, seedCol) {
@@ -196,7 +197,8 @@ function insertResourceRows(db, resource, rows, ownerId) {
       const body = rowToBody(resource, row);
       const values = fieldNames.map((fieldName) => {
         const field = resource.fields.find((candidate) => candidate.name === fieldName);
-        return normalizeValue(field.type, body[fieldName]);
+        const storageType = field.storageType || field.type;
+        return normalizeValue(storageType, body[fieldName]);
       });
 
       if (resource.ownershipEnabled) {
@@ -206,7 +208,7 @@ function insertResourceRows(db, resource, rows, ownerId) {
       try {
         insertRow.run(...values);
       } catch (err) {
-        throw new Error(`Could not insert ${resource.name} row ${index + 1}: ${err.message}`);
+        throw new Error(`Could not insert ${resource.type} row ${index + 1}: ${err.message}`);
       }
     });
   });
@@ -258,9 +260,9 @@ async function main() {
     console.log(`Seeded ${count} user row(s) -> users`);
 
     for (const entry of order.resources) {
-      const resource = findResource(config, entry.name);
+      const resource = findResource(config, entry.type);
       if (!resource) {
-        console.warn(`Skipping unknown resource ${entry.name} in order.json`);
+        console.warn(`Skipping unknown resource type ${entry.type} in order.json`);
         continue;
       }
       const csvPath = path.join(projectRoot, seedDir, entry.file);

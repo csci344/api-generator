@@ -9,13 +9,24 @@ function main() {
     const config = loadApiConfig(configPath);
 
     console.log("api.config.yaml is valid.\n");
+    console.log(
+      "Convention: every resource `type` and every non-scalar field `type` (a relation) must be PascalCase, for example Order or Sneaker."
+    );
     console.log(`Resources: ${config.resources.length}`);
 
     for (const resource of config.resources) {
-      console.log(`\n- ${resource.name}`);
+      console.log(`\n- ${resource.type}`);
       console.log(`  path: ${resource.path}`);
       console.log(`  operations: ${resource.operations.join(", ")}`);
-      console.log(`  fields: ${resource.fields.map((field) => `${field.name}:${field.type}`).join(", ")}`);
+      console.log(
+        `  fields: ${resource.fields
+          .map((field) =>
+            field.relation
+              ? `${field.name}:${field.type} [id -> ${field.relation.resourceType}.${field.relation.targetField || "id"}]`
+              : `${field.name}:${field.type}`
+          )
+          .join(", ")}`
+      );
       const authSummary = resource.operations
         .map((operation) => `${operation}=${resource.permissions[operation]}`)
         .join(", ");
@@ -28,13 +39,6 @@ function main() {
       }
       if (resource.ownershipEnabled) {
         console.log("  ownership: owner_id will be added automatically");
-      }
-      if (resource.relations.length > 0) {
-        console.log(
-          `  relations: ${resource.relations
-            .map((relation) => `${relation.name}(${relation.kind} -> ${relation.targetResource})`)
-            .join(", ")}`
-        );
       }
       if ((resource.queryFilters || []).length > 0) {
         console.log(

@@ -79,6 +79,7 @@ function writeArtifacts(projectRoot, config, seedOptions = {}) {
 }
 
 function buildSchemaSql(config) {
+  const resourceMap = new Map(config.resources.map((resource) => [resource.type, resource]));
   return config.resources
     .map((resource) => {
       const columnLines = ["id INTEGER PRIMARY KEY AUTOINCREMENT"];
@@ -88,7 +89,7 @@ function buildSchemaSql(config) {
 
       for (const field of resource.fields) {
         const required = field.required ? " NOT NULL" : "";
-        columnLines.push(`${field.name} ${sqlTypeForField(field.type)}${required}`);
+        columnLines.push(`${field.name} ${sqlTypeForField(field.storageType)}${required}`);
       }
 
       if (resource.ownershipEnabled) {
@@ -96,9 +97,10 @@ function buildSchemaSql(config) {
       }
 
       for (const field of resource.fields) {
-        if (field.references) {
+        if (field.relation) {
+          const target = resourceMap.get(field.relation.resourceType);
           columnLines.push(
-            `FOREIGN KEY (${field.name}) REFERENCES ${field.references.resource}(${field.references.field || "id"})`
+            `FOREIGN KEY (${field.name}) REFERENCES ${target?.tableName || field.relation.resourceType}(${field.relation.targetField || "id"})`
           );
         }
       }
@@ -170,7 +172,7 @@ function buildDocs(config) {
         );
       }
       return {
-        name: resource.name,
+        type: resource.type,
         path: resource.path,
         shareable: resource.shareable,
         endpoints,
@@ -180,7 +182,7 @@ function buildDocs(config) {
 }
 
 function buildOpenApi(config) {
-  const resourceMap = new Map(config.resources.map((resource) => [resource.name, resource]));
+  const resourceMap = new Map(config.resources.map((resource) => [resource.type, resource]));
   const paths = {
     "/auth/register": {
       post: {
@@ -343,9 +345,9 @@ function buildOpenApi(config) {
   };
 
   for (const resource of config.resources) {
-    const createSchemaName = `${pascalCase(resource.name)}CreateInput`;
-    const updateSchemaName = `${pascalCase(resource.name)}UpdateInput`;
-    const fullSchemaName = `${pascalCase(resource.name)}Record`;
+    const createSchemaName = `${pascalCase(resource.type)}CreateInput`;
+    const updateSchemaName = `${pascalCase(resource.type)}UpdateInput`;
+    const fullSchemaName = `${pascalCase(resource.type)}Record`;
 
     components.schemas[createSchemaName] = buildInputSchema(resource, false);
     components.schemas[updateSchemaName] = buildInputSchema(resource, true);
@@ -354,8 +356,8 @@ function buildOpenApi(config) {
     if (resource.operations.includes("list")) {
       paths[resource.path] ||= {};
       paths[resource.path].get = {
-        tags: [resource.name],
-        summary: `List ${resource.name}`,
+        tags: [resource.type],
+        summary: `List ${resource.type}`,
         ...(buildOpenApiQueryParameters(resource).length > 0
           ? { parameters: buildOpenApiQueryParameters(resource) }
           : {}),
@@ -380,8 +382,8 @@ function buildOpenApi(config) {
     if (resource.operations.includes("create")) {
       paths[resource.path] ||= {};
       paths[resource.path].post = {
-        tags: [resource.name],
-        summary: `Create a ${resource.name} record`,
+        tags: [resource.type],
+        summary: `Create a ${resource.type} record`,
         requestBody: {
           required: true,
           content: {
@@ -409,8 +411,8 @@ function buildOpenApi(config) {
     if (resource.operations.includes("retrieve")) {
       paths[detailPath] ||= { parameters: [idParameter()] };
       paths[detailPath].get = {
-        tags: [resource.name],
-        summary: `Fetch one ${resource.name} record`,
+        tags: [resource.type],
+        summary: `Fetch one ${resource.type} record`,
         responses: {
           200: {
             description: "Record found",
@@ -429,8 +431,8 @@ function buildOpenApi(config) {
     if (resource.operations.includes("update")) {
       paths[detailPath] ||= { parameters: [idParameter()] };
       paths[detailPath].patch = {
-        tags: [resource.name],
-        summary: `Update one ${resource.name} record`,
+        tags: [resource.type],
+        summary: `Update one ${resource.type} record`,
         requestBody: {
           required: true,
           content: {
@@ -457,8 +459,8 @@ function buildOpenApi(config) {
     if (resource.operations.includes("delete")) {
       paths[detailPath] ||= { parameters: [idParameter()] };
       paths[detailPath].delete = {
-        tags: [resource.name],
-        summary: `Delete one ${resource.name} record`,
+        tags: [resource.type],
+        summary: `Delete one ${resource.type} record`,
         responses: {
           204: { description: "Deleted successfully" },
           ...errorResponses(),
@@ -474,8 +476,8 @@ function buildOpenApi(config) {
       paths[sharePath] = {
         parameters: [idParameter()],
         get: {
-          tags: [resource.name],
-          summary: `List shares for a ${resource.name} record`,
+          tags: [resource.type],
+          summary: `List shares for a ${resource.type} record`,
           security: [{ BearerAuth: [] }],
           responses: {
             200: {
@@ -493,8 +495,8 @@ function buildOpenApi(config) {
           },
         },
         post: {
-          tags: [resource.name],
-          summary: `Share a ${resource.name} record with another user`,
+          tags: [resource.type],
+          summary: `Share a ${resource.type} record with another user`,
           security: [{ BearerAuth: [] }],
           requestBody: {
             required: true,
@@ -529,8 +531,8 @@ function buildOpenApi(config) {
           },
         ],
         delete: {
-          tags: [resource.name],
-          summary: `Remove a share from a ${resource.name} record`,
+          tags: [resource.type],
+          summary: `Remove a share from a ${resource.type} record`,
           security: [{ BearerAuth: [] }],
           responses: {
             204: { description: "Share removed" },
@@ -552,7 +554,7 @@ function buildOpenApi(config) {
     servers: [{ url: "/" }],
     tags: [
       { name: "auth" },
-      ...config.resources.map((resource) => ({ name: resource.name })),
+      ...config.resources.map((resource) => ({ name: resource.type })),
     ],
     components,
     paths,
@@ -563,7 +565,7 @@ function buildValidatorModule(resource) {
   return [
     `module.exports = ${JSON.stringify(
       {
-        resource: resource.name,
+        resource: resource.type,
         fields: resource.fields,
       },
       null,
@@ -610,7 +612,7 @@ function buildInputSchema(resource, partial) {
     type: "object",
     ...(required.length > 0 ? { required } : {}),
     properties: Object.fromEntries(
-      resource.fields.map((field) => [field.name, openApiTypeForField(field.type)])
+      resource.fields.map((field) => [field.name, openApiTypeForField(field.storageType)])
     ),
   };
 }
@@ -625,18 +627,18 @@ function buildFullRecordSchema(resourceMap, resource, depth = 0) {
   }
 
   for (const field of resource.fields) {
-    if (depth === 0 && field.references) {
-      const target = resourceMap.get(field.references.resource);
+    if (depth === 0 && field.relation) {
+      const target = resourceMap.get(field.relation.resourceType);
       properties[field.name] = target
         ? {
             ...buildFullRecordSchema(resourceMap, target, depth + 1),
             nullable: !field.required,
           }
-        : openApiTypeForField(field.type);
+        : openApiTypeForField(field.storageType);
       continue;
     }
 
-    properties[field.name] = openApiTypeForField(field.type);
+    properties[field.name] = openApiTypeForField(field.storageType);
   }
 
   return {
@@ -671,7 +673,8 @@ function buildDocsQueryParams(resource) {
     name: filter.param,
     field: filter.fieldName,
     op: filter.op,
-    type: filter.type,
+    type: filter.storageType,
+    relationType: filter.relation?.resourceType || null,
   }));
 }
 
@@ -680,11 +683,11 @@ function buildOpenApiQueryParameters(resource) {
       in: "query",
       name: filter.param,
       required: false,
-      schema: openApiTypeForField(filter.type),
+      schema: openApiTypeForField(filter.storageType),
       description:
         filter.op === "contains"
-          ? `Filter ${resource.name} by ${filter.fieldName} using a partial text match.`
-          : `Filter ${resource.name} by ${filter.fieldName} using an exact match.`,
+          ? `Filter ${resource.type} by ${filter.fieldName} using a partial text match.`
+          : `Filter ${resource.type} by ${filter.fieldName} using an exact match.`,
     }));
 }
 

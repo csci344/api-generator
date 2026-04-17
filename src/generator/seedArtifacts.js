@@ -3,19 +3,19 @@ const path = require("path");
 const { normalizeSeedDir } = require("../runtime/seedDir");
 
 /**
- * Foreign-key-safe order: each referenced resource appears before dependents.
+ * Foreign-key-safe order: each referenced resource type appears before dependents.
  */
 function dependencyOrder(resources) {
-  const byName = new Map(resources.map((r) => [r.name, r]));
+  const byType = new Map(resources.map((r) => [r.type, r]));
   const result = [];
-  const pending = new Set(resources.map((r) => r.name));
+  const pending = new Set(resources.map((r) => r.type));
 
   while (pending.size) {
-    const ready = [...pending].filter((name) => {
-      const r = byName.get(name);
+    const ready = [...pending].filter((type) => {
+      const r = byType.get(type);
       const prereqs = r.fields
-        .map((f) => f.references?.resource)
-        .filter((x) => x && byName.has(x));
+        .map((f) => f.relation?.resourceType)
+        .filter((x) => x && byType.has(x));
       return prereqs.every((p) => result.includes(p));
     });
     if (ready.length === 0) {
@@ -27,7 +27,7 @@ function dependencyOrder(resources) {
     pending.delete(pick);
   }
 
-  return result.map((name) => byName.get(name));
+  return result.map((type) => byType.get(type));
 }
 
 function sampleValueForField(field, rowIndex) {
@@ -67,7 +67,7 @@ function buildSampleCsv(resource, rowsPerResource) {
   const lines = [headers.join(",")];
   for (let i = 0; i < rowsPerResource; i += 1) {
     const cells = resource.fields.map((field) => {
-      if (field.references) {
+      if (field.relation) {
         return String(i + 1);
       }
       return escapeCsvCell(sampleValueForField(field, i));
@@ -141,7 +141,7 @@ function writeSeedArtifacts(projectRoot, config, options = {}) {
     baseUrlEnv: "API_BASE",
     directory: seedDirName,
     resources: ordered.map((r) => ({
-      name: r.name,
+      type: r.type,
       path: r.path,
       file: `${r.fileBase}.csv`,
     })),

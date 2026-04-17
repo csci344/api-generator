@@ -2,7 +2,7 @@ const express = require("express");
 const { optionalAuth, requireAuth } = require("./auth");
 
 function registerGeneratedResources(app, db, resources) {
-  const resourceMap = new Map(resources.map((resource) => [resource.name, resource]));
+  const resourceMap = new Map(resources.map((resource) => [resource.type, resource]));
   for (const resource of resources) {
     app.use(resource.path, buildCrudRouter(db, resource, resourceMap));
   }
@@ -143,7 +143,7 @@ function buildCrudRouter(db, resource, resourceMap) {
 
       db.prepare(`DELETE FROM ${resource.tableName} WHERE id = ?`).run(req.params.id);
       db.prepare("DELETE FROM shares WHERE resource_type = ? AND resource_id = ?").run(
-        resource.name,
+        resource.type,
         req.params.id
       );
 
@@ -169,7 +169,7 @@ function buildCrudRouter(db, resource, resourceMap) {
            WHERE s.resource_type = ? AND s.resource_id = ?
            ORDER BY u.username`
         )
-        .all(resource.name, req.params.id);
+        .all(resource.type, req.params.id);
 
       res.json(shares);
     });
@@ -209,7 +209,7 @@ function buildCrudRouter(db, resource, resourceMap) {
              (resource_type, resource_id, shared_with_user_id, shared_by_user_id)
            VALUES (?, ?, ?, ?)`
         )
-        .run(resource.name, req.params.id, targetUser.id, req.user.sub);
+        .run(resource.type, req.params.id, targetUser.id, req.user.sub);
 
       if (result.changes === 0) {
         res.status(200).json({
@@ -225,7 +225,7 @@ function buildCrudRouter(db, resource, resourceMap) {
            FROM shares
            WHERE resource_type = ? AND resource_id = ? AND shared_with_user_id = ?`
         )
-        .get(resource.name, req.params.id, targetUser.id);
+        .get(resource.type, req.params.id, targetUser.id);
 
       res.status(201).json({
         ...share,
@@ -246,7 +246,7 @@ function buildCrudRouter(db, resource, resourceMap) {
         .prepare(
           "DELETE FROM shares WHERE id = ? AND resource_type = ? AND resource_id = ?"
         )
-        .run(req.params.shareId, resource.name, req.params.id);
+        .run(req.params.shareId, resource.type, req.params.id);
 
       if (result.changes === 0) {
         res.status(404).json({ error: "Share not found." });
@@ -279,7 +279,7 @@ function listRows(db, resource, user, filters = []) {
           ON s.resource_type = ?
          AND s.resource_id = t.id
          AND s.shared_with_user_id = ?`;
-      params.push(resource.name, user.sub);
+      params.push(resource.type, user.sub);
       whereClauses.push("(t.owner_id = ? OR s.shared_with_user_id = ?)");
       params.push(user.sub, user.sub);
       break;
@@ -349,7 +349,7 @@ function parseQueryValue(field, rawValue) {
     return { skip: true, value: null, error: null };
   }
 
-  switch (field.type) {
+  switch (field.storageType || field.type) {
     case "boolean": {
       const lower = value.toLowerCase();
       if (lower === "true" || value === "1") {
@@ -425,7 +425,7 @@ function getAccessibleRow(db, resource, id, user, policy) {
               AND s.shared_with_user_id = ?
              WHERE t.id = ? AND (t.owner_id = ? OR s.shared_with_user_id = ?)`
           )
-          .get(resource.name, user.sub, id, user.sub, user.sub) || null
+          .get(resource.type, user.sub, id, user.sub, user.sub) || null
       );
     default:
       return null;
@@ -451,11 +451,11 @@ function shapeRecord(db, resourceMap, resource, record, depth = 0) {
   }
 
   for (const field of resource.fields || []) {
-    if (!field.references) {
+    if (!field.relation) {
       continue;
     }
 
-    const target = resourceMap.get(field.references.resource);
+    const target = resourceMap.get(field.relation.resourceType);
     if (!target) {
       continue;
     }
@@ -467,7 +467,7 @@ function shapeRecord(db, resourceMap, resource, record, depth = 0) {
     }
 
     const relatedRecord = db
-      .prepare(`SELECT * FROM ${target.tableName} WHERE ${field.references.field || "id"} = ?`)
+      .prepare(`SELECT * FROM ${target.tableName} WHERE ${field.relation.targetField || "id"} = ?`)
       .get(foreignValue);
 
     shaped[field.name] = shapeRecord(db, resourceMap, target, relatedRecord, depth + 1);
@@ -505,7 +505,10 @@ function validateBody(resource, body, partial) {
     if (!partial && field.required && (value === undefined || value === null || value === "")) {
       return `Field \`${field.name}\` is required.`;
     }
-    if (value !== undefined && value !== null && !isValidType(field.type, value)) {
+    if (value !== undefined && value !== null && !isValidType(field.storageType, value)) {
+      if (field.relation) {
+        return `Field \`${field.name}\` must be an integer id for \`${field.type}\`.`;
+      }
       return `Field \`${field.name}\` must be of type \`${field.type}\`.`;
     }
   }
@@ -517,7 +520,7 @@ function sanitizeBody(resource, body, partial = false) {
   const clean = {};
   for (const field of resource.fields) {
     if (Object.prototype.hasOwnProperty.call(body, field.name)) {
-      clean[field.name] = normalizeValue(field.type, body[field.name]);
+      clean[field.name] = normalizeValue(field.storageType, body[field.name]);
     } else if (!partial) {
       clean[field.name] = null;
     }
