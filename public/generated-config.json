@@ -1,7 +1,7 @@
 {
   "meta": {
     "configPath": "api.config.yaml",
-    "generatedAt": "2026-04-20T12:26:59.229Z",
+    "generatedAt": "2026-04-20T13:25:32.314Z",
     "seedDir": "data/sample-data"
   },
   "resources": [
@@ -44,8 +44,8 @@
         "list": "public",
         "retrieve": "public",
         "create": "user",
-        "update": "user",
-        "delete": "user"
+        "update": "owner",
+        "delete": "owner"
       },
       "queryFilters": [
         {
@@ -182,73 +182,6 @@
           "storageType": "integer",
           "relation": {
             "resourceType": "PlantType",
-            "targetField": "id"
-          }
-        },
-        {
-          "param": "owner_id",
-          "fieldName": "owner_id",
-          "op": "eq",
-          "type": "integer",
-          "storageType": "integer",
-          "relation": null
-        }
-      ]
-    },
-    {
-      "type": "Comment",
-      "tableName": "comments",
-      "fileBase": "comments",
-      "path": "/api/comments",
-      "operations": [
-        "list",
-        "retrieve",
-        "create",
-        "update",
-        "delete"
-      ],
-      "shareable": false,
-      "ownershipEnabled": true,
-      "fields": [
-        {
-          "name": "body",
-          "type": "text",
-          "storageType": "text",
-          "required": true,
-          "relation": null,
-          "query": null
-        },
-        {
-          "name": "plant",
-          "type": "Plant",
-          "storageType": "integer",
-          "required": true,
-          "relation": {
-            "resourceType": "Plant",
-            "targetField": "id"
-          },
-          "query": {
-            "param": "plant",
-            "op": "eq"
-          }
-        }
-      ],
-      "permissions": {
-        "list": "public",
-        "retrieve": "public",
-        "create": "user",
-        "update": "owner",
-        "delete": "owner"
-      },
-      "queryFilters": [
-        {
-          "param": "plant",
-          "fieldName": "plant",
-          "op": "eq",
-          "type": "Plant",
-          "storageType": "integer",
-          "relation": {
-            "resourceType": "Plant",
             "targetField": "id"
           }
         },

@@ -12,13 +12,12 @@ resources:
         query: true
       - name: description
         type: text
-
     permissions:
       list: public
       retrieve: public
       create: user
-      update: user
-      delete: user
+      update: owner
+      delete: owner
 
   - type: Plant
     path: /api/plants
@@ -45,24 +44,6 @@ resources:
         required: true
       - name: notes
         type: text
-    permissions:
-      list: public
-      retrieve: public
-      create: user
-      update: owner
-      delete: owner
-
-  - type: Comment
-    path: /api/comments
-    operations: [list, retrieve, create, update, delete]
-    fields:
-      - name: body
-        type: text
-        required: true
-      - name: plant
-        type: Plant
-        required: true
-        query: true
     permissions:
       list: public
       retrieve: public
