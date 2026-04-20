@@ -5,3 +5,4 @@ generated/
 package-lock.json
 .DS_Store 
 CONTEXT.md
+public/demo/

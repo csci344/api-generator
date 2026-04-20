@@ -1,15 +1,15 @@
 {
   "meta": {
     "configPath": "api.config.yaml",
-    "generatedAt": "2026-04-17T16:33:10.276Z",
+    "generatedAt": "2026-04-20T12:26:59.229Z",
     "seedDir": "data/sample-data"
   },
   "resources": [
     {
-      "type": "Sneaker",
-      "tableName": "sneakers",
-      "fileBase": "sneakers",
-      "path": "/api/sneakers",
+      "type": "PlantType",
+      "tableName": "plant_types",
+      "fileBase": "plant-types",
+      "path": "/api/plant-types",
       "operations": [
         "list",
         "retrieve",
@@ -32,62 +32,117 @@
           }
         },
         {
-          "name": "brand",
-          "type": "Brand",
-          "storageType": "integer",
+          "name": "description",
+          "type": "text",
+          "storageType": "text",
           "required": false,
-          "relation": {
-            "resourceType": "Brand",
-            "targetField": "id"
-          },
-          "query": {
-            "param": "brand",
-            "op": "eq"
-          }
+          "relation": null,
+          "query": null
+        }
+      ],
+      "permissions": {
+        "list": "public",
+        "retrieve": "public",
+        "create": "user",
+        "update": "user",
+        "delete": "user"
+      },
+      "queryFilters": [
+        {
+          "param": "name",
+          "fieldName": "name",
+          "op": "contains",
+          "type": "string",
+          "storageType": "string",
+          "relation": null
         },
         {
-          "name": "price",
-          "type": "number",
-          "storageType": "number",
+          "param": "owner_id",
+          "fieldName": "owner_id",
+          "op": "eq",
+          "type": "integer",
+          "storageType": "integer",
+          "relation": null
+        }
+      ]
+    },
+    {
+      "type": "Plant",
+      "tableName": "plants",
+      "fileBase": "plants",
+      "path": "/api/plants",
+      "operations": [
+        "list",
+        "retrieve",
+        "create",
+        "update",
+        "delete"
+      ],
+      "shareable": false,
+      "ownershipEnabled": true,
+      "fields": [
+        {
+          "name": "name",
+          "type": "string",
+          "storageType": "string",
           "required": true,
           "relation": null,
           "query": {
-            "param": "price",
+            "param": "name",
+            "op": "contains"
+          }
+        },
+        {
+          "name": "image_url",
+          "type": "image_url",
+          "storageType": "image_url",
+          "required": false,
+          "relation": null,
+          "query": {
+            "param": "image_url",
+            "op": "contains"
+          }
+        },
+        {
+          "name": "species",
+          "type": "PlantType",
+          "storageType": "integer",
+          "required": true,
+          "relation": {
+            "resourceType": "PlantType",
+            "targetField": "id"
+          },
+          "query": {
+            "param": "species",
             "op": "eq"
           }
         },
         {
-          "name": "photo",
-          "type": "image_url",
-          "storageType": "image_url",
+          "name": "planted_year",
+          "type": "integer",
+          "storageType": "integer",
+          "required": false,
+          "relation": null,
+          "query": null
+        },
+        {
+          "name": "latitude",
+          "type": "number",
+          "storageType": "number",
           "required": true,
           "relation": null,
           "query": null
         },
         {
-          "name": "size",
-          "type": "integer",
-          "storageType": "integer",
-          "required": false,
+          "name": "longitude",
+          "type": "number",
+          "storageType": "number",
+          "required": true,
           "relation": null,
-          "query": {
-            "param": "size",
-            "op": "eq"
-          }
+          "query": null
         },
         {
-          "name": "is_available",
-          "type": "boolean",
-          "storageType": "boolean",
-          "required": false,
-          "relation": null,
-          "query": {
-            "param": "is_available",
-            "op": "eq"
-          }
-        },
-        {
-          "name": "description",
+          "name": "notes",
           "type": "text",
           "storageType": "text",
           "required": false,
@@ -112,39 +167,23 @@
           "relation": null
         },
         {
-          "param": "brand",
-          "fieldName": "brand",
+          "param": "image_url",
+          "fieldName": "image_url",
+          "op": "contains",
+          "type": "image_url",
+          "storageType": "image_url",
+          "relation": null
+        },
+        {
+          "param": "species",
+          "fieldName": "species",
           "op": "eq",
-          "type": "Brand",
+          "type": "PlantType",
           "storageType": "integer",
           "relation": {
-            "resourceType": "Brand",
+            "resourceType": "PlantType",
             "targetField": "id"
           }
-        },
-        {
-          "param": "price",
-          "fieldName": "price",
-          "op": "eq",
-          "type": "number",
-          "storageType": "number",
-          "relation": null
-        },
-        {
-          "param": "size",
-          "fieldName": "size",
-          "op": "eq",
-          "type": "integer",
-          "storageType": "integer",
-          "relation": null
-        },
-        {
-          "param": "is_available",
-          "fieldName": "is_available",
-          "op": "eq",
-          "type": "boolean",
-          "storageType": "boolean",
-          "relation": null
         },
         {
           "param": "owner_id",
@@ -157,10 +196,10 @@
       ]
     },
     {
-      "type": "Brand",
-      "tableName": "brands",
-      "fileBase": "brands",
-      "path": "/api/brands",
+      "type": "Comment",
+      "tableName": "comments",
+      "fileBase": "comments",
+      "path": "/api/comments",
       "operations": [
         "list",
         "retrieve",
@@ -172,20 +211,26 @@
       "ownershipEnabled": true,
       "fields": [
         {
-          "name": "name",
-          "type": "string",
-          "storageType": "string",
+          "name": "body",
+          "type": "text",
+          "storageType": "text",
           "required": true,
           "relation": null,
           "query": null
         },
         {
-          "name": "description",
-          "type": "text",
-          "storageType": "text",
-          "required": false,
-          "relation": null,
-          "query": null
+          "name": "plant",
+          "type": "Plant",
+          "storageType": "integer",
+          "required": true,
+          "relation": {
+            "resourceType": "Plant",
+            "targetField": "id"
+          },
+          "query": {
+            "param": "plant",
+            "op": "eq"
+          }
         }
       ],
       "permissions": {
@@ -197,179 +242,13 @@
       },
       "queryFilters": [
         {
-          "param": "owner_id",
-          "fieldName": "owner_id",
+          "param": "plant",
+          "fieldName": "plant",
           "op": "eq",
-          "type": "integer",
-          "storageType": "integer",
-          "relation": null
-        }
-      ]
-    },
-    {
-      "type": "Favorite",
-      "tableName": "favorites",
-      "fileBase": "favorites",
-      "path": "/api/favorites",
-      "operations": [
-        "list",
-        "retrieve",
-        "create",
-        "update",
-        "delete"
-      ],
-      "shareable": false,
-      "ownershipEnabled": true,
-      "fields": [
-        {
-          "name": "note",
-          "type": "string",
-          "storageType": "string",
-          "required": false,
-          "relation": null,
-          "query": null
-        },
-        {
-          "name": "sneaker",
-          "type": "Sneaker",
-          "storageType": "integer",
-          "required": true,
-          "relation": {
-            "resourceType": "Sneaker",
-            "targetField": "id"
-          },
-          "query": {
-            "param": "sneaker",
-            "op": "eq"
-          }
-        }
-      ],
-      "permissions": {
-        "list": "owner",
-        "retrieve": "owner",
-        "create": "user",
-        "update": "owner",
-        "delete": "owner"
-      },
-      "queryFilters": [
-        {
-          "param": "sneaker",
-          "fieldName": "sneaker",
-          "op": "eq",
-          "type": "Sneaker",
+          "type": "Plant",
           "storageType": "integer",
           "relation": {
-            "resourceType": "Sneaker",
-            "targetField": "id"
-          }
-        },
-        {
-          "param": "owner_id",
-          "fieldName": "owner_id",
-          "op": "eq",
-          "type": "integer",
-          "storageType": "integer",
-          "relation": null
-        }
-      ]
-    },
-    {
-      "type": "Order",
-      "tableName": "orders",
-      "fileBase": "orders",
-      "path": "/api/orders",
-      "operations": [
-        "list",
-        "retrieve",
-        "create",
-        "update",
-        "delete"
-      ],
-      "shareable": false,
-      "ownershipEnabled": true,
-      "fields": [
-        {
-          "name": "customer_name",
-          "type": "string",
-          "storageType": "string",
-          "required": true,
-          "relation": null,
-          "query": null
-        },
-        {
-          "name": "email",
-          "type": "string",
-          "storageType": "string",
-          "required": true,
-          "relation": null,
-          "query": null
-        },
-        {
-          "name": "status",
-          "type": "string",
-          "storageType": "string",
-          "required": true,
-          "relation": null,
-          "query": {
-            "param": "status",
-            "op": "contains"
-          }
-        },
-        {
-          "name": "total",
-          "type": "number",
-          "storageType": "number",
-          "required": true,
-          "relation": null,
-          "query": null
-        },
-        {
-          "name": "created_at",
-          "type": "datetime",
-          "storageType": "datetime",
-          "required": false,
-          "relation": null,
-          "query": null
-        },
-        {
-          "name": "sneaker",
-          "type": "Sneaker",
-          "storageType": "integer",
-          "required": true,
-          "relation": {
-            "resourceType": "Sneaker",
-            "targetField": "id"
-          },
-          "query": {
-            "param": "sneaker",
-            "op": "eq"
-          }
-        }
-      ],
-      "permissions": {
-        "list": "owner",
-        "retrieve": "owner",
-        "create": "user",
-        "update": "owner",
-        "delete": "owner"
-      },
-      "queryFilters": [
-        {
-          "param": "status",
-          "fieldName": "status",
-          "op": "contains",
-          "type": "string",
-          "storageType": "string",
-          "relation": null
-        },
-        {
-          "param": "sneaker",
-          "fieldName": "sneaker",
-          "op": "eq",
-          "type": "Sneaker",
-          "storageType": "integer",
-          "relation": {
-            "resourceType": "Sneaker",
+            "resourceType": "Plant",
             "targetField": "id"
           }
         },

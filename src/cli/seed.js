@@ -138,6 +138,28 @@ function findResource(config, resourceType) {
   return config.resources.find((r) => r.type === resourceType);
 }
 
+function truncateAllTables(db) {
+  const tables = db
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+    )
+    .all()
+    .map((row) => row.name);
+
+  db.exec("PRAGMA foreign_keys = OFF");
+  try {
+    const truncate = db.transaction((tableNames) => {
+      for (const tableName of tableNames) {
+        db.prepare(`DELETE FROM ${tableName}`).run();
+      }
+      db.prepare("DELETE FROM sqlite_sequence").run();
+    });
+    truncate(tables);
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
+  }
+}
+
 async function insertUsers(db, userRows, seedCol) {
   const preparedRows = [];
   for (const row of userRows) {
@@ -256,6 +278,7 @@ async function main() {
   const db = initDatabase(projectRoot);
 
   try {
+    truncateAllTables(db);
     const { count, seedUser, seedUserId } = await insertUsers(db, userRows, seedCol);
     console.log(`Seeded ${count} user row(s) -> users`);
 
