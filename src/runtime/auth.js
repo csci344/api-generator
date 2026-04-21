@@ -55,18 +55,17 @@ function registerAuthRoutes(app, db) {
       return;
     }
 
-    const existing = db
-      .prepare("SELECT id FROM users WHERE username = ?")
-      .get(username);
+    const existing = await db.get("SELECT id FROM users WHERE username = ?", [username]);
     if (existing) {
       res.status(409).json({ error: "That username is already taken." });
       return;
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
-    const result = db
-      .prepare("INSERT INTO users (username, password_hash) VALUES (?, ?)")
-      .run(username, passwordHash);
+    const result = await db.run(
+      "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+      [username, passwordHash]
+    );
 
     const user = { id: result.lastInsertRowid, username };
     res.status(201).json({
@@ -79,9 +78,7 @@ function registerAuthRoutes(app, db) {
     const username = String(req.body?.username || "").trim();
     const password = String(req.body?.password || "");
 
-    const user = db
-      .prepare("SELECT * FROM users WHERE username = ?")
-      .get(username);
+    const user = await db.get("SELECT * FROM users WHERE username = ?", [username]);
 
     if (!user || !(await bcrypt.compare(password, user.password_hash))) {
       res.status(401).json({ error: "Invalid username or password." });
@@ -94,17 +91,17 @@ function registerAuthRoutes(app, db) {
     });
   });
 
-  app.get("/auth/me", requireAuth, (req, res) => {
-    const user = db
-      .prepare("SELECT id, username, created_at FROM users WHERE id = ?")
-      .get(req.user.sub);
+  app.get("/auth/me", requireAuth, async (req, res) => {
+    const user = await db.get("SELECT id, username, created_at FROM users WHERE id = ?", [
+      req.user.sub,
+    ]);
     res.json(user);
   });
 
-  app.get("/auth/users", requireAuth, (_req, res) => {
-    const users = db
-      .prepare("SELECT id, username, created_at FROM users ORDER BY username ASC")
-      .all();
+  app.get("/auth/users", requireAuth, async (_req, res) => {
+    const users = await db.all(
+      "SELECT id, username, created_at FROM users ORDER BY username ASC"
+    );
     res.json(users);
   });
 }

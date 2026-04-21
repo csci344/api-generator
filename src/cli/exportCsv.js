@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 const fs = require("fs");
 const path = require("path");
-const Database = require("better-sqlite3");
+const { initDatabase, resolveDatabaseProvider } = require("../runtime/db");
 const { getCliOption } = require("../runtime/seedDir");
 
 function csvCell(value) {
@@ -31,19 +31,6 @@ function writeCsv(filePath, rows) {
   fs.writeFileSync(filePath, `${lines.join("\n")}\n`, "utf8");
 }
 
-function getTableNames(db) {
-  const rows = db
-    .prepare(
-      `SELECT name
-       FROM sqlite_master
-       WHERE type = 'table'
-         AND name NOT LIKE 'sqlite_%'
-       ORDER BY name`
-    )
-    .all();
-  return rows.map((row) => row.name);
-}
-
 function parseTableList(value) {
   if (!value || !value.trim()) {
     return null;
@@ -55,20 +42,20 @@ function parseTableList(value) {
 }
 
 function printHelp() {
-  console.log(`Export SQLite tables to CSV files.
+  console.log(`Export database tables to CSV files.
 
 Usage:
   npm run export:csv -- [--db <path>] [--out-dir <path>] [--tables users,orders]
 
 Options:
-  --db       Path to sqlite database file (default: data/app.db)
+  --db       Path to sqlite database file (default: data/app.db; sqlite only)
   --out-dir  Output directory for CSV files (default: data/csv-export)
   --tables   Comma-separated list of tables to export (default: all tables)
   --help     Show this help message
 `);
 }
 
-function main() {
+async function main() {
   const argv = process.argv.slice(2);
   if (argv.includes("--help")) {
     printHelp();
@@ -79,20 +66,32 @@ function main() {
   const dbArg = getCliOption(argv, "--db");
   const outDirArg = getCliOption(argv, "--out-dir");
   const tablesArg = getCliOption(argv, "--tables");
+  const provider = resolveDatabaseProvider();
 
-  const dbPath = path.resolve(projectRoot, dbArg || path.join("data", "app.db"));
   const outDir = path.resolve(projectRoot, outDirArg || path.join("data", "csv-export"));
   const requestedTables = parseTableList(tablesArg);
 
-  if (!fs.existsSync(dbPath)) {
-    throw new Error(`Database file not found: ${dbPath}`);
+  if (dbArg && provider !== "sqlite") {
+    throw new Error("--db is only supported when DATABASE_PROVIDER=sqlite.");
+  }
+
+  let dbPath = null;
+  if (provider === "sqlite") {
+    dbPath = path.resolve(projectRoot, dbArg || path.join("data", "app.db"));
+    if (!fs.existsSync(dbPath)) {
+      throw new Error(`Database file not found: ${dbPath}`);
+    }
   }
 
   fs.mkdirSync(outDir, { recursive: true });
 
-  const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+  const db = await initDatabase(projectRoot, {
+    initializeSchema: false,
+    ...(dbPath ? { dbPath, readonly: true, fileMustExist: true } : {}),
+  });
+
   try {
-    const availableTables = getTableNames(db);
+    const availableTables = await db.listTables();
     if (availableTables.length === 0) {
       console.log("No tables found to export.");
       return;
@@ -105,7 +104,7 @@ function main() {
     }
 
     for (const tableName of selectedTables) {
-      const rows = db.prepare(`SELECT * FROM "${tableName}"`).all();
+      const rows = await db.all(`SELECT * FROM "${tableName}"`);
       const csvPath = path.join(outDir, `${tableName}.csv`);
       writeCsv(csvPath, rows);
       console.log(`Wrote ${tableName}.csv (${rows.length} rows)`);
@@ -113,13 +112,11 @@ function main() {
 
     console.log(`\nCSV export complete: ${outDir}`);
   } finally {
-    db.close();
+    await db.close();
   }
 }
 
-try {
-  main();
-} catch (error) {
+main().catch((error) => {
   console.error(error.message || String(error));
   process.exit(1);
-}
+});

@@ -33,7 +33,18 @@ function writeArtifacts(projectRoot, config, seedOptions = {}) {
     JSON.stringify(configWithMeta, null, 2)
   );
 
-  fs.writeFileSync(path.join(generatedDir, "schema.sql"), buildSchemaSql(configWithMeta));
+  fs.writeFileSync(
+    path.join(generatedDir, "schema.sql"),
+    buildSchemaSql(configWithMeta, "sqlite")
+  );
+  fs.writeFileSync(
+    path.join(generatedDir, "schema.sqlite.sql"),
+    buildSchemaSql(configWithMeta, "sqlite")
+  );
+  fs.writeFileSync(
+    path.join(generatedDir, "schema.postgres.sql"),
+    buildSchemaSql(configWithMeta, "postgres")
+  );
   fs.writeFileSync(
     path.join(docsDir, "routes.json"),
     JSON.stringify(buildDocs(configWithMeta), null, 2)
@@ -78,18 +89,22 @@ function writeArtifacts(projectRoot, config, seedOptions = {}) {
   });
 }
 
-function buildSchemaSql(config) {
+function buildSchemaSql(config, dialect = "sqlite") {
   const resourceMap = new Map(config.resources.map((resource) => [resource.type, resource]));
   return config.resources
     .map((resource) => {
-      const columnLines = ["id INTEGER PRIMARY KEY AUTOINCREMENT"];
+      const columnLines = [
+        dialect === "postgres"
+          ? "id BIGSERIAL PRIMARY KEY"
+          : "id INTEGER PRIMARY KEY AUTOINCREMENT",
+      ];
       if (resource.ownershipEnabled) {
-        columnLines.push("owner_id INTEGER NOT NULL");
+        columnLines.push(`owner_id ${dialect === "postgres" ? "BIGINT" : "INTEGER"} NOT NULL`);
       }
 
       for (const field of resource.fields) {
         const required = field.required ? " NOT NULL" : "";
-        columnLines.push(`${field.name} ${sqlTypeForField(field.storageType)}${required}`);
+        columnLines.push(`${field.name} ${sqlTypeForField(field.storageType, dialect)}${required}`);
       }
 
       if (resource.ownershipEnabled) {
@@ -585,14 +600,14 @@ function buildRouteModule(resource, validatorModulePath) {
   ].join("\n");
 }
 
-function sqlTypeForField(type) {
+function sqlTypeForField(type, dialect = "sqlite") {
   switch (type) {
     case "integer":
-      return "INTEGER";
+      return dialect === "postgres" ? "BIGINT" : "INTEGER";
     case "number":
-      return "REAL";
+      return dialect === "postgres" ? "DOUBLE PRECISION" : "REAL";
     case "boolean":
-      return "INTEGER";
+      return dialect === "postgres" ? "BOOLEAN" : "INTEGER";
     case "date":
     case "datetime":
     case "image_url":

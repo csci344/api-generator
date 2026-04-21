@@ -31,7 +31,7 @@ async function main() {
     sampleRows: headersOnly ? 0 : 5,
     seedDir,
   });
-  const dbPath = recreateDatabase(projectRoot);
+  const dbPath = await recreateDatabase(projectRoot);
 
   console.log(`Generated ${config.resources.length} resource(s) from ${path.basename(configPath)}.`);
   console.log(`Recreated SQLite database at ${dbPath}.`);

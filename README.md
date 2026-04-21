@@ -4,6 +4,8 @@ Edit [`api.config.yaml`](api.config.yaml), run a few commands, and you get a SQL
 
 **On this page:** [Quick start](#quick-start) · [Going deeper](#going-deeper)
 
+For Railway deployment notes, including what has to change to move from SQLite to PostgreSQL, see [`RAILWAY_DEPLOY.md`](RAILWAY_DEPLOY.md).
+
 ## Quick start
 
 You need **Node.js** and **npm** installed.
@@ -16,6 +18,8 @@ You need **Node.js** and **npm** installed.
 1. Open **`/api/docs`** in the browser — use the **same host and port** printed in the terminal (often `http://localhost:3100`).
 
 **Try the API:** each fresh database includes **`admin` / `password`** and **`user` / `password`**. Use **Authorize** in `/api/docs` with a token from `POST /auth/login` when an endpoint requires auth.
+
+**Database provider:** by default the starter uses SQLite. To switch providers, set `DATABASE_PROVIDER=sqlite` or `DATABASE_PROVIDER=postgres`. Postgres mode also requires `DATABASE_URL`.
 
 **Important:** `npm run generate` **deletes and recreates** [`data/app.db`](data/app.db) and replaces everything under [`generated/`](generated/). Treat it as a full reset, not a small edit.
 

@@ -35,7 +35,7 @@ async function main() {
     : null;
   const generatedResources = require(generatedRoutesPath);
 
-  const db = initDatabase(projectRoot);
+  const db = await initDatabase(projectRoot);
   const app = express();
 
   app.use(cors());

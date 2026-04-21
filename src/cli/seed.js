@@ -1,10 +1,7 @@
 #!/usr/bin/env node
 /**
- * Loads data from generated seed CSV files directly into the local SQLite database.
+ * Loads data from generated seed CSV files into the configured database.
  * Run `npm run generate`, then: npm run seed
- *
- * Expects a fresh database (e.g. after `npm run generate`) so auto-increment ids
- * match foreign-key values in the sample CSVs (1, 2, ... per table).
  */
 
 const fs = require("fs");
@@ -65,7 +62,7 @@ function parseCsvFile(filePath) {
   return rows;
 }
 
-function coerceValue(field, raw) {
+function coerceValue(db, field, raw) {
   const s = String(raw).trim();
   if (s === "") {
     return undefined;
@@ -75,10 +72,10 @@ function coerceValue(field, raw) {
     case "boolean": {
       const lower = s.toLowerCase();
       if (lower === "true" || s === "1") {
-        return true;
+        return db.normalizeBoolean(true);
       }
       if (lower === "false" || s === "0") {
-        return false;
+        return db.normalizeBoolean(false);
       }
       throw new Error(`Invalid boolean for ${field.name}: ${raw}`);
     }
@@ -105,14 +102,14 @@ function coerceValue(field, raw) {
   }
 }
 
-function rowToBody(resource, row) {
+function rowToBody(db, resource, row) {
   const body = {};
   for (const field of resource.fields) {
     if (!Object.prototype.hasOwnProperty.call(row, field.name)) {
       continue;
     }
     const raw = row[field.name];
-    const value = coerceValue(field, raw);
+    const value = coerceValue(db, field, raw);
     if (value === undefined) {
       if (field.required) {
         throw new Error(`Missing required field ${resource.type}.${field.name}`);
@@ -124,40 +121,13 @@ function rowToBody(resource, row) {
   return body;
 }
 
-function normalizeValue(type, value) {
-  if (value === undefined || value === null) {
-    return null;
-  }
-  if (type === "boolean") {
-    return value ? 1 : 0;
-  }
-  return value;
-}
-
 function findResource(config, resourceType) {
   return config.resources.find((r) => r.type === resourceType);
 }
 
-function truncateAllTables(db) {
-  const tables = db
-    .prepare(
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
-    )
-    .all()
-    .map((row) => row.name);
-
-  db.exec("PRAGMA foreign_keys = OFF");
-  try {
-    const truncate = db.transaction((tableNames) => {
-      for (const tableName of tableNames) {
-        db.prepare(`DELETE FROM ${tableName}`).run();
-      }
-      db.prepare("DELETE FROM sqlite_sequence").run();
-    });
-    truncate(tables);
-  } finally {
-    db.exec("PRAGMA foreign_keys = ON");
-  }
+async function truncateAllTables(db) {
+  const tables = await db.listTables();
+  await db.clearTables(tables);
 }
 
 async function insertUsers(db, userRows, seedCol) {
@@ -175,29 +145,29 @@ async function insertUsers(db, userRows, seedCol) {
     });
   }
 
-  const adminUser = db.prepare("SELECT id, username FROM users WHERE username = ?").get("admin");
+  const adminUser = await db.get("SELECT id, username FROM users WHERE username = ?", ["admin"]);
   const seedUser = adminUser
     ? { username: adminUser.username, isSeedUser: true }
     : preparedRows.find((row) => row.isSeedUser) || preparedRows[0];
   const userIdByUsername = new Map();
-  const insertUser = db.prepare("INSERT INTO users (username, password_hash) VALUES (?, ?)");
-  const updateUserPassword = db.prepare("UPDATE users SET password_hash = ? WHERE id = ?");
-  const selectUser = db.prepare("SELECT id FROM users WHERE username = ?");
-  const upsertUsers = db.transaction((rows) => {
-    for (const row of rows) {
-      const existing = selectUser.get(row.username);
-      if (existing) {
-        updateUserPassword.run(row.passwordHash, existing.id);
-        userIdByUsername.set(row.username, Number(existing.id));
-        continue;
-      }
 
-      const result = insertUser.run(row.username, row.passwordHash);
-      userIdByUsername.set(row.username, Number(result.lastInsertRowid));
+  for (const row of preparedRows) {
+    const existing = await db.get("SELECT id FROM users WHERE username = ?", [row.username]);
+    if (existing) {
+      await db.run("UPDATE users SET password_hash = ? WHERE id = ?", [
+        row.passwordHash,
+        existing.id,
+      ]);
+      userIdByUsername.set(row.username, Number(existing.id));
+      continue;
     }
-  });
 
-  upsertUsers(preparedRows);
+    const result = await db.run(
+      "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+      [row.username, row.passwordHash]
+    );
+    userIdByUsername.set(row.username, Number(result.lastInsertRowid));
+  }
 
   return {
     count: preparedRows.length,
@@ -206,36 +176,28 @@ async function insertUsers(db, userRows, seedCol) {
   };
 }
 
-function insertResourceRows(db, resource, rows, ownerId) {
+async function insertResourceRows(db, resource, rows, ownerId) {
   const fieldNames = resource.fields.map((field) => field.name);
   const insertFieldNames = resource.ownershipEnabled ? ["owner_id", ...fieldNames] : fieldNames;
   const placeholders = insertFieldNames.map(() => "?").join(", ");
-  const insertRow = db.prepare(
-    `INSERT INTO ${resource.tableName} (${insertFieldNames.join(", ")}) VALUES (${placeholders})`
-  );
 
-  const insertManyRows = db.transaction((inputRows) => {
-    inputRows.forEach((row, index) => {
-      const body = rowToBody(resource, row);
-      const values = fieldNames.map((fieldName) => {
-        const field = resource.fields.find((candidate) => candidate.name === fieldName);
-        const storageType = field.storageType || field.type;
-        return normalizeValue(storageType, body[fieldName]);
-      });
+  for (const [index, row] of rows.entries()) {
+    const body = rowToBody(db, resource, row);
+    const values = fieldNames.map((fieldName) => body[fieldName] ?? null);
 
-      if (resource.ownershipEnabled) {
-        values.unshift(ownerId);
-      }
+    if (resource.ownershipEnabled) {
+      values.unshift(ownerId);
+    }
 
-      try {
-        insertRow.run(...values);
-      } catch (err) {
-        throw new Error(`Could not insert ${resource.type} row ${index + 1}: ${err.message}`);
-      }
-    });
-  });
-
-  insertManyRows(rows);
+    try {
+      await db.run(
+        `INSERT INTO ${resource.tableName} (${insertFieldNames.join(", ")}) VALUES (${placeholders})`,
+        values
+      );
+    } catch (err) {
+      throw new Error(`Could not insert ${resource.type} row ${index + 1}: ${err.message}`);
+    }
+  }
 }
 
 async function main() {
@@ -256,7 +218,10 @@ async function main() {
   }
 
   const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-  const seedDir = normalizeSeedDir(getCliOption(argv, "--seed-dir"), config.meta?.seedDir || "data/sample-data");
+  const seedDir = normalizeSeedDir(
+    getCliOption(argv, "--seed-dir"),
+    config.meta?.seedDir || "data/sample-data"
+  );
   const orderPath = path.join(projectRoot, seedDir, "order.json");
   if (!fs.existsSync(orderPath)) {
     console.error(
@@ -275,10 +240,10 @@ async function main() {
   }
 
   const seedCol = order.seedUserColumn || "seed_as";
-  const db = initDatabase(projectRoot);
+  const db = await initDatabase(projectRoot);
 
   try {
-    truncateAllTables(db);
+    await truncateAllTables(db);
     const { count, seedUser, seedUserId } = await insertUsers(db, userRows, seedCol);
     console.log(`Seeded ${count} user row(s) -> users`);
 
@@ -295,14 +260,14 @@ async function main() {
       }
 
       const rows = parseCsvFile(csvPath);
-      insertResourceRows(db, resource, rows, seedUserId);
+      await insertResourceRows(db, resource, rows, seedUserId);
       console.log(`Seeded ${rows.length} row(s) -> ${resource.path}`);
     }
 
     console.log(`Seed owner: ${seedUser.username}`);
     console.log("Seed complete.");
   } finally {
-    db.close();
+    await db.close();
   }
 }
 
