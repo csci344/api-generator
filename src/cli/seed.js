@@ -2,7 +2,7 @@
 const path = require("path");
 const { confirmDestructiveAction } = require("../runtime/confirm");
 const { initDatabase } = require("../runtime/db");
-const { getCliOption } = require("../runtime/seedDir");
+const { resolveSeedDir } = require("../runtime/profileConfig");
 const { seedDatabase } = require("../runtime/seedData");
 
 const projectRoot = path.resolve(__dirname, "../..");
@@ -22,7 +22,7 @@ async function main() {
 
   try {
     const result = await seedDatabase(projectRoot, db, {
-      seedDir: getCliOption(argv, "--seed-dir"),
+      seedDir: resolveSeedDir(argv),
       truncateExisting: true,
     });
 

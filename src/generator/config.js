@@ -40,7 +40,7 @@ function loadApiConfig(configPath) {
 
 function normalizeConfig(config, configPath) {
   if (!Array.isArray(config.resources) || config.resources.length === 0) {
-    throw new Error("`api.config.yaml` must define a non-empty `resources` array.");
+    throw new Error(`\`${path.basename(configPath)}\` must define a non-empty \`resources\` array.`);
   }
 
   const seenTypes = new Set();
@@ -186,7 +186,7 @@ function normalizeConfig(config, configPath) {
 
   return {
     meta: {
-      configPath: path.basename(configPath),
+      configPath: path.normalize(configPath),
       generatedAt: new Date().toISOString(),
     },
     resources: normalizedResources,

@@ -1,6 +1,6 @@
 # Deploying `api-generator` to Railway with committed sample data
 
-This app can now switch between SQLite and PostgreSQL by environment variable, and it includes a Railway-safe bootstrap flow for committed seed data.
+This app can now switch between SQLite and PostgreSQL by environment variable, it can activate alternate YAML/seed presets, and it includes a Railway-safe bootstrap flow for committed seed data.
 
 ## The deployment idea
 
@@ -76,10 +76,24 @@ If your Postgres service is not named `Postgres`, use that service name in the `
 
 ## 5. Use the Railway-safe start command
 
-Set the start command to:
+This repo now includes [`railway.json`](/Users/svanwart/unca/csci344/spring2026/final-project/api-generator/railway.json) with the baked-in start command:
 
 ```bash
-npm run start:railway
+ACTIVE_API_CONFIG=api.config.yaml ACTIVE_SEED_DIR=data/sample-data npm run start:railway
+```
+
+Because this project is deployed from a monorepo-style folder, point Railway at the config file path:
+
+```text
+/api-generator/railway.json
+```
+
+If you do not set a config-file path in Railway, you can still manually set the start command in the dashboard to the same value.
+
+To activate another saved profile on Railway, edit the start command in `railway.json`. Example:
+
+```bash
+ACTIVE_API_CONFIG=examples/plants/api.config.yaml ACTIVE_SEED_DIR=examples/plants/seed npm run start:railway
 ```
 
 That script runs:

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "deploy": {
+    "startCommand": "ACTIVE_API_CONFIG=api.config.yaml ACTIVE_SEED_DIR=data/sample-data npm run start:railway",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}

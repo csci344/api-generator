@@ -3,20 +3,17 @@ const { loadApiConfig } = require("../generator/config");
 const { writeArtifacts } = require("../generator/artifacts");
 const { recreateDatabase } = require("../runtime/db");
 const { confirmDestructiveAction } = require("../runtime/confirm");
-const { getCliOption, normalizeSeedDir } = require("../runtime/seedDir");
+const { resolveApiConfigPath, resolveSeedDir } = require("../runtime/profileConfig");
 
 async function main() {
   const projectRoot = path.resolve(__dirname, "../..");
-  const configPath = path.join(projectRoot, "api.config.yaml");
   const argv = process.argv.slice(2);
   const noSeed = argv.includes("--no-seed");
   const headersOnly = argv.includes("--headers-only");
   const skipDbReset = argv.includes("--skip-db-reset");
+  const { absolutePath: configPath, relativePath: configRelativePath } = resolveApiConfigPath(projectRoot, argv);
   const config = loadApiConfig(configPath);
-  const seedDir = normalizeSeedDir(
-    getCliOption(argv, "--seed-dir"),
-    config.meta?.seedDir || "data/sample-data"
-  );
+  const seedDir = resolveSeedDir(argv, config.meta?.seedDir || "data/sample-data");
   if (!skipDbReset) {
     const confirmed = await confirmDestructiveAction(
       argv,
@@ -35,7 +32,7 @@ async function main() {
     seedDir,
   });
 
-  console.log(`Generated ${config.resources.length} resource(s) from ${path.basename(configPath)}.`);
+  console.log(`Generated ${config.resources.length} resource(s) from ${configRelativePath}.`);
   if (skipDbReset) {
     console.log("Skipped database reset. Generated artifacts and committed seed files only.");
   } else {

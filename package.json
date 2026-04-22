@@ -4,6 +4,7 @@
   "description": "Declarative CRUD API generator starter app",
   "main": "src/server.js",
   "scripts": {
+    "build:example": "node src/cli/buildExample.js",
     "validate": "node src/cli/validate.js",
     "generate": "node src/cli/generate.js",
     "generate:committed": "node src/cli/generate.js --yes --skip-db-reset",

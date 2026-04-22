@@ -1,0 +1,10 @@
+name,brand,price,photo,size,is_available,description
+Sample name 1,1,12.99,/student/images/sneakers/sneaker1.png,1,true,Sample description paragraph 1.
+Sample name 2,2,13.99,/student/images/sneakers/sneaker2.png,2,false,Sample description paragraph 2.
+Sample name 3,3,14.99,/student/images/sneakers/sneaker3.png,3,true,Sample description paragraph 3.
+Sample name 4,4,15.99,/student/images/sneakers/sneaker4.png,4,false,Sample description paragraph 4.
+Sample name 5,5,16.99,/student/images/sneakers/sneaker5.png,5,true,Sample description paragraph 5.
+Sample name 6,5,16.99,/student/images/sneakers/sneaker6.png,4,true,Sample description paragraph 6.
+Sample name 7,5,16.99,/student/images/sneakers/sneaker7.png,1,true,Sample description paragraph 7.
+Sample name 8,5,16.99,/student/images/sneakers/sneaker8.png,2,true,Sample description paragraph 8.
+Sample name 9,5,16.99,/student/images/sneakers/sneaker9.png,3,true,Sample description paragraph 9.

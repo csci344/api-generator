@@ -1,14 +1,16 @@
 const path = require("path");
 const { loadApiConfig } = require("../generator/config");
+const { resolveApiConfigPath } = require("../runtime/profileConfig");
 
 function main() {
   const projectRoot = path.resolve(__dirname, "../..");
-  const configPath = path.join(projectRoot, "api.config.yaml");
+  const argv = process.argv.slice(2);
+  const { absolutePath, relativePath } = resolveApiConfigPath(projectRoot, argv);
 
   try {
-    const config = loadApiConfig(configPath);
+    const config = loadApiConfig(absolutePath);
 
-    console.log("api.config.yaml is valid.\n");
+    console.log(`${relativePath} is valid.\n`);
     console.log(
       "Convention: every resource `type` and every non-scalar field `type` (a relation) must be PascalCase, for example Order or Sneaker."
     );
@@ -56,7 +58,7 @@ function main() {
     console.log("- users table and auth endpoints are provided automatically");
     console.log("- the global shares table is provided automatically for shareable resources");
   } catch (error) {
-    console.error("api.config.yaml is invalid.\n");
+    console.error(`${relativePath} is invalid.\n`);
     console.error(error.message);
     process.exit(1);
   }

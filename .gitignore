@@ -6,3 +6,14 @@ package-lock.json
 .DS_Store 
 CONTEXT.md
 public/demo/
+public/student/images/**/*.png
+public/student/images/**/*.jpg
+public/student/images/**/*.jpeg
+public/student/images/**/*.gif
+public/student/images/**/*.svg
+public/student/images/**/*.ico
+public/student/images/**/*.webp
+public/student/images/**/*.bmp
+public/student/images/**/*.tiff
+public/student/images/**/*.ico
+public/student/images/**/*.webp

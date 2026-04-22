@@ -1,27 +1,40 @@
 #!/usr/bin/env node
 const path = require("path");
 const { initDatabase } = require("../runtime/db");
-const { getCliOption } = require("../runtime/seedDir");
+const { resolveApiConfigPath, resolveSeedDir } = require("../runtime/profileConfig");
+const { loadApiConfig } = require("../generator/config");
+const { writeArtifacts } = require("../generator/artifacts");
 const { isManagedDatabaseEmpty, seedDatabase } = require("../runtime/seedData");
 
 const projectRoot = path.resolve(__dirname, "../..");
 
 async function main() {
   const argv = process.argv.slice(2);
-  const seedDir = getCliOption(argv, "--seed-dir");
+  const { absolutePath: configPath, relativePath: configRelativePath } = resolveApiConfigPath(projectRoot, argv);
+  const config = loadApiConfig(configPath);
+  const seedDir = resolveSeedDir(argv, config.meta?.seedDir || "data/sample-data");
   const shouldSeed = String(process.env.AUTO_SEED_ON_EMPTY || "true").trim().toLowerCase();
+
+  writeArtifacts(projectRoot, config, {
+    noSeed: true,
+    seedDir,
+  });
 
   const db = await initDatabase(projectRoot);
 
   try {
     const isEmpty = await isManagedDatabaseEmpty(projectRoot, db);
     if (!isEmpty) {
-      console.log("Database already has data. Skipping bootstrap seed.");
+      console.log(
+        `Activated ${configRelativePath} with seed directory ${seedDir}. Database already has data, so bootstrap seed was skipped.`
+      );
       return;
     }
 
     if (shouldSeed === "false" || shouldSeed === "0" || shouldSeed === "off") {
-      console.log("Database is empty, but AUTO_SEED_ON_EMPTY is disabled. Schema only.");
+      console.log(
+        `Activated ${configRelativePath} with seed directory ${seedDir}. Database is empty, but AUTO_SEED_ON_EMPTY is disabled. Schema only.`
+      );
       return;
     }
 
@@ -30,7 +43,9 @@ async function main() {
       truncateExisting: false,
     });
 
-    console.log(`Bootstrapped database from committed seed data in ${result.seedDir}.`);
+    console.log(
+      `Activated ${configRelativePath} and bootstrapped database from committed seed data in ${result.seedDir}.`
+    );
     for (const line of result.lines) {
       console.log(line);
     }
