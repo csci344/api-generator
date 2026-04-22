@@ -1,14 +1,27 @@
-# Sample API: campus fruit trees and bushes
-# Copy this file to the project root as api.config.yaml (backup the default first if you want).
-
 resources:
-  - type: PlantType
-    path: /api/plant-types
+  - type: Sneaker
+    path: /api/sneakers
     operations: [list, retrieve, create, update, delete]
     fields:
       - name: name
         type: string
         required: true
+        query: true
+      - name: brand
+        type: Brand
+        query: true
+      - name: price
+        type: number
+        required: true
+        query: true
+      - name: photo
+        type: image_url
+        required: true
+      - name: size
+        type: integer
+        query: true
+      - name: is_available
+        type: boolean
         query: true
       - name: description
         type: text
@@ -19,34 +32,64 @@ resources:
       update: owner
       delete: owner
 
-  - type: Plant
-    path: /api/plants
+  - type: Brand
+    path: /api/brands
     operations: [list, retrieve, create, update, delete]
     fields:
       - name: name
         type: string
         required: true
-        query: true
-      - name: image_url
-        type: image_url
-        query: true
-      - name: species
-        type: PlantType
-        required: true
-        query: true
-      - name: planted_year
-        type: integer
-      - name: latitude
-        type: number
-        required: true
-      - name: longitude
-        type: number
-        required: true
-      - name: notes
+      - name: description
         type: text
     permissions:
       list: public
       retrieve: public
+      create: user
+      update: owner
+      delete: owner
+  - type: Favorite
+    path: /api/favorites
+    operations: [list, retrieve, create, update, delete]
+    fields:
+      - name: note
+        type: string
+      - name: sneaker
+        type: Sneaker
+        required: true
+        query: true
+    permissions:
+      list: owner
+      retrieve: owner
+      create: user
+      update: owner
+      delete: owner
+
+  - type: Order
+    path: /api/orders
+    operations: [list, retrieve, create, update, delete]
+    fields:
+      - name: customer_name
+        type: string
+        required: true
+      - name: email
+        type: string
+        required: true
+      - name: status
+        type: string
+        required: true
+        query: true
+      - name: total
+        type: number
+        required: true
+      - name: created_at
+        type: datetime
+      - name: sneaker
+        type: Sneaker
+        required: true
+        query: true
+    permissions:
+      list: owner
+      retrieve: owner
       create: user
       update: owner
       delete: owner

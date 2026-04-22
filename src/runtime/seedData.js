@@ -121,6 +121,7 @@ async function truncateAllTables(db) {
 }
 
 async function insertUsers(db, userRows, seedCol) {
+  const adminPasswordHash = await bcrypt.hash("password", 10);
   const preparedRows = [];
   for (const row of userRows) {
     const username = String(row.username || "").trim();
@@ -135,13 +136,27 @@ async function insertUsers(db, userRows, seedCol) {
     });
   }
 
-  const adminUser = await db.get("SELECT id, username FROM users WHERE username = ?", ["admin"]);
-  const seedUser = adminUser
-    ? { username: adminUser.username, isSeedUser: true }
-    : preparedRows.find((row) => row.isSeedUser) || preparedRows[0];
   const userIdByUsername = new Map();
 
+  const existingAdmin = await db.get("SELECT id FROM users WHERE username = ?", ["admin"]);
+  if (existingAdmin) {
+    await db.run("UPDATE users SET password_hash = ? WHERE id = ?", [
+      adminPasswordHash,
+      existingAdmin.id,
+    ]);
+    userIdByUsername.set("admin", Number(existingAdmin.id));
+  } else {
+    const adminResult = await db.run(
+      "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+      ["admin", adminPasswordHash]
+    );
+    userIdByUsername.set("admin", Number(adminResult.lastInsertRowid));
+  }
+
   for (const row of preparedRows) {
+    if (row.username === "admin") {
+      continue;
+    }
     const existing = await db.get("SELECT id FROM users WHERE username = ?", [row.username]);
     if (existing) {
       await db.run("UPDATE users SET password_hash = ? WHERE id = ?", [
@@ -159,10 +174,12 @@ async function insertUsers(db, userRows, seedCol) {
     userIdByUsername.set(row.username, Number(result.lastInsertRowid));
   }
 
+  const seedUser = { username: "admin", isSeedUser: true };
+
   return {
-    count: preparedRows.length,
+    count: preparedRows.length + (preparedRows.some((row) => row.username === "admin") ? 0 : 1),
     seedUser,
-    seedUserId: adminUser ? Number(adminUser.id) : userIdByUsername.get(seedUser.username),
+    seedUserId: userIdByUsername.get("admin"),
   };
 }
 

@@ -1,8 +1,8 @@
 {
   "meta": {
-    "configPath": "/Users/svanwart/unca/csci344/spring2026/final-project/api-generator/examples/sneakers/api.config.yaml",
-    "generatedAt": "2026-04-22T16:24:53.349Z",
-    "seedDir": "examples/sneakers"
+    "configPath": "/Users/svanwart/unca/csci344/spring2026/final-project/api-generator/api.config.yaml",
+    "generatedAt": "2026-04-22T17:02:16.441Z",
+    "seedDir": "data/sample-data"
   },
   "resources": [
     {
