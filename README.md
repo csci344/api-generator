@@ -21,6 +21,8 @@ You need **Node.js** and **npm** installed.
 
 **Database provider:** by default the starter uses SQLite. To switch providers, set `DATABASE_PROVIDER=sqlite` or `DATABASE_PROVIDER=postgres`. Postgres mode also requires `DATABASE_URL`.
 
+**Commit-friendly sample data flow:** use `npm run generate:committed` when you want to refresh `generated/` and `data/sample-data/` for the repo without resetting your local database.
+
 **Important:** `npm run generate` **deletes and recreates** [`data/app.db`](data/app.db) and replaces everything under [`generated/`](generated/). Treat it as a full reset, not a small edit.
 
 **Optional:** to load the generated CSV spreadsheets into the database, run `npm run seed` (see [Seed data](#seed-data) below).
@@ -145,23 +147,26 @@ Examples: `GET /api/photos?title=sunset`, `GET /api/comments?photo=3`, `GET /api
 npm run generate
 ```
 
-Besides refreshing `generated/`, it recreates **`data/app.db`** from the latest schema and (by default) writes seed CSVs under **`data/sample-data/`** (override with `meta.seedDir` in YAML or `--seed-dir=<dir>`). Do not hand-edit `generated/` — it is build output.
+Besides refreshing `generated/`, it recreates the configured database from the latest schema and (by default) writes seed CSVs under **`data/sample-data/`** (override with `meta.seedDir` in YAML or `--seed-dir=<dir>`). Do not hand-edit `generated/` — it is build output.
 
 **Flags**
 
 - `--no-seed` — skip writing seed CSV templates (nothing is archived in the seed folder that run)
 - `--headers-only` — CSV headers only, no sample rows
 - `--seed-dir=<dir>` — put seed templates in another project-relative directory
+- `--skip-db-reset` — update generated artifacts and seed CSVs without recreating the database
 
 **Archiving:** before rewriting seeds, existing root `*.csv`, `order.json`, and `README.txt` in the seed directory move to `<seedDir>/archive/<YYYY-MM-DD_HH-mm-ss>/`.
 
-**Scripts:** pass `--yes` to skip the destructive prompt. If `npm start` / `npm run dev` cannot bind the requested port, the server tries the next ports and prints the URL it chose.
+**Scripts:** pass `--yes` to skip the destructive prompt. Use `npm run generate:committed` as the safe repo-update version when you want to commit refreshed `generated/` and `data/sample-data/` without touching live local data. If `npm start` / `npm run dev` cannot bind the requested port, the server tries the next ports and prints the URL it chose.
 
 Custom schema or data outside the generated model is not migrated automatically; that would be a separate story later.
 
 ### Seed data
 
-After `npm run generate`, **`data/sample-data/`** holds CSV files and `order.json`. **`npm run seed`** ([`src/cli/seed.js`](src/cli/seed.js)) loads them into SQLite. Use the same `--seed-dir` or `meta.seedDir` you used for generate if you overrode the default.
+After `npm run generate`, **`data/sample-data/`** holds CSV files and `order.json`. **`npm run seed`** ([`src/cli/seed.js`](src/cli/seed.js)) loads them into the configured database and replaces existing data. Use the same `--seed-dir` or `meta.seedDir` you used for generate if you overrode the default.
+
+For deploys, **`npm run db:bootstrap`** ([`src/cli/bootstrap.js`](src/cli/bootstrap.js)) is the safer option: it creates the schema and only loads the committed seed CSVs when the managed tables are empty. That makes it a good fit for Railway startup on a fresh Postgres instance.
 
 Typical flow: `npm run generate` → `npm run seed` → `npm start`. Both commands ask for confirmation; use `--yes` when automating.
 

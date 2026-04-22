@@ -6,9 +6,12 @@
   "scripts": {
     "validate": "node src/cli/validate.js",
     "generate": "node src/cli/generate.js",
+    "generate:committed": "node src/cli/generate.js --yes --skip-db-reset",
     "seed": "node src/cli/seed.js",
+    "db:bootstrap": "node src/cli/bootstrap.js",
     "export:csv": "node src/cli/exportCsv.js",
     "start": "node src/server.js",
+    "start:railway": "node src/cli/bootstrap.js && node src/server.js",
     "dev": "nodemon --watch src --watch generated --ext js,json src/server.js"
   },
   "keywords": [],

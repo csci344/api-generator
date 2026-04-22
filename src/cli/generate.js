@@ -11,19 +11,22 @@ async function main() {
   const argv = process.argv.slice(2);
   const noSeed = argv.includes("--no-seed");
   const headersOnly = argv.includes("--headers-only");
+  const skipDbReset = argv.includes("--skip-db-reset");
   const config = loadApiConfig(configPath);
   const seedDir = normalizeSeedDir(
     getCliOption(argv, "--seed-dir"),
     config.meta?.seedDir || "data/sample-data"
   );
-  const confirmed = await confirmDestructiveAction(
-    argv,
-    "Are you sure you want to replace all of the data?"
-  );
+  if (!skipDbReset) {
+    const confirmed = await confirmDestructiveAction(
+      argv,
+      "Are you sure you want to replace all of the data?"
+    );
 
-  if (!confirmed) {
-    console.log("Generate cancelled.");
-    process.exit(0);
+    if (!confirmed) {
+      console.log("Generate cancelled.");
+      process.exit(0);
+    }
   }
 
   writeArtifacts(projectRoot, config, {
@@ -31,10 +34,14 @@ async function main() {
     sampleRows: headersOnly ? 0 : 5,
     seedDir,
   });
-  const dbPath = await recreateDatabase(projectRoot);
 
   console.log(`Generated ${config.resources.length} resource(s) from ${path.basename(configPath)}.`);
-  console.log(`Recreated SQLite database at ${dbPath}.`);
+  if (skipDbReset) {
+    console.log("Skipped database reset. Generated artifacts and committed seed files only.");
+  } else {
+    const dbPath = await recreateDatabase(projectRoot);
+    console.log(`Recreated database at ${dbPath}.`);
+  }
   if (!noSeed) {
     console.log(
       `Wrote sample CSV seed files under ${seedDir}/ (use --no-seed to skip, --headers-only for empty rows).`

@@ -1,7 +1,7 @@
 {
   "meta": {
     "configPath": "api.config.yaml",
-    "generatedAt": "2026-04-21T19:48:00.020Z",
+    "generatedAt": "2026-04-21T20:30:29.196Z",
     "seedDir": "data/sample-data"
   },
   "resources": [

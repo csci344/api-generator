@@ -1,204 +1,11 @@
 #!/usr/bin/env node
-/**
- * Loads data from generated seed CSV files into the configured database.
- * Run `npm run generate`, then: npm run seed
- */
-
-const fs = require("fs");
 const path = require("path");
-const bcrypt = require("bcryptjs");
 const { confirmDestructiveAction } = require("../runtime/confirm");
 const { initDatabase } = require("../runtime/db");
-const { getCliOption, normalizeSeedDir } = require("../runtime/seedDir");
+const { getCliOption } = require("../runtime/seedDir");
+const { seedDatabase } = require("../runtime/seedData");
 
 const projectRoot = path.resolve(__dirname, "../..");
-
-function parseCsvLine(line) {
-  const out = [];
-  let cur = "";
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i += 1) {
-    const c = line[i];
-    if (inQuotes) {
-      if (c === '"') {
-        if (line[i + 1] === '"') {
-          cur += '"';
-          i += 1;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        cur += c;
-      }
-    } else if (c === '"') {
-      inQuotes = true;
-    } else if (c === ",") {
-      out.push(cur);
-      cur = "";
-    } else {
-      cur += c;
-    }
-  }
-  out.push(cur);
-  return out;
-}
-
-function parseCsvFile(filePath) {
-  const text = fs.readFileSync(filePath, "utf8");
-  const lines = text.split(/\r?\n/).filter((l) => l.length > 0);
-  if (lines.length < 2) {
-    return [];
-  }
-  const headers = parseCsvLine(lines[0]).map((h) => h.trim());
-  const rows = [];
-  for (let i = 1; i < lines.length; i += 1) {
-    const cells = parseCsvLine(lines[i]);
-    const row = {};
-    headers.forEach((h, j) => {
-      row[h] = cells[j] !== undefined ? cells[j] : "";
-    });
-    rows.push(row);
-  }
-  return rows;
-}
-
-function coerceValue(db, field, raw) {
-  const s = String(raw).trim();
-  if (s === "") {
-    return undefined;
-  }
-  const storageType = field.storageType || field.type;
-  switch (storageType) {
-    case "boolean": {
-      const lower = s.toLowerCase();
-      if (lower === "true" || s === "1") {
-        return db.normalizeBoolean(true);
-      }
-      if (lower === "false" || s === "0") {
-        return db.normalizeBoolean(false);
-      }
-      throw new Error(`Invalid boolean for ${field.name}: ${raw}`);
-    }
-    case "integer": {
-      const n = parseInt(s, 10);
-      if (!Number.isFinite(n)) {
-        throw new Error(`Invalid integer for ${field.name}: ${raw}`);
-      }
-      return n;
-    }
-    case "number": {
-      const x = parseFloat(s);
-      if (!Number.isFinite(x)) {
-        throw new Error(`Invalid number for ${field.name}: ${raw}`);
-      }
-      return x;
-    }
-    case "string":
-    case "text":
-    case "date":
-    case "datetime":
-    default:
-      return s;
-  }
-}
-
-function rowToBody(db, resource, row) {
-  const body = {};
-  for (const field of resource.fields) {
-    if (!Object.prototype.hasOwnProperty.call(row, field.name)) {
-      continue;
-    }
-    const raw = row[field.name];
-    const value = coerceValue(db, field, raw);
-    if (value === undefined) {
-      if (field.required) {
-        throw new Error(`Missing required field ${resource.type}.${field.name}`);
-      }
-      continue;
-    }
-    body[field.name] = value;
-  }
-  return body;
-}
-
-function findResource(config, resourceType) {
-  return config.resources.find((r) => r.type === resourceType);
-}
-
-async function truncateAllTables(db) {
-  const tables = await db.listTables();
-  await db.clearTables(tables);
-}
-
-async function insertUsers(db, userRows, seedCol) {
-  const preparedRows = [];
-  for (const row of userRows) {
-    const username = String(row.username || "").trim();
-    const password = String(row.password || "");
-    if (!username || !password) {
-      throw new Error("Each row in users.csv must include username and password.");
-    }
-    preparedRows.push({
-      username,
-      passwordHash: await bcrypt.hash(password, 10),
-      isSeedUser: String(row[seedCol] || "").trim().toLowerCase() === "yes",
-    });
-  }
-
-  const adminUser = await db.get("SELECT id, username FROM users WHERE username = ?", ["admin"]);
-  const seedUser = adminUser
-    ? { username: adminUser.username, isSeedUser: true }
-    : preparedRows.find((row) => row.isSeedUser) || preparedRows[0];
-  const userIdByUsername = new Map();
-
-  for (const row of preparedRows) {
-    const existing = await db.get("SELECT id FROM users WHERE username = ?", [row.username]);
-    if (existing) {
-      await db.run("UPDATE users SET password_hash = ? WHERE id = ?", [
-        row.passwordHash,
-        existing.id,
-      ]);
-      userIdByUsername.set(row.username, Number(existing.id));
-      continue;
-    }
-
-    const result = await db.run(
-      "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-      [row.username, row.passwordHash]
-    );
-    userIdByUsername.set(row.username, Number(result.lastInsertRowid));
-  }
-
-  return {
-    count: preparedRows.length,
-    seedUser,
-    seedUserId: adminUser ? Number(adminUser.id) : userIdByUsername.get(seedUser.username),
-  };
-}
-
-async function insertResourceRows(db, resource, rows, ownerId) {
-  const fieldNames = resource.fields.map((field) => field.name);
-  const insertFieldNames = resource.ownershipEnabled ? ["owner_id", ...fieldNames] : fieldNames;
-  const placeholders = insertFieldNames.map(() => "?").join(", ");
-
-  for (const [index, row] of rows.entries()) {
-    const body = rowToBody(db, resource, row);
-    const values = fieldNames.map((fieldName) => body[fieldName] ?? null);
-
-    if (resource.ownershipEnabled) {
-      values.unshift(ownerId);
-    }
-
-    try {
-      await db.run(
-        `INSERT INTO ${resource.tableName} (${insertFieldNames.join(", ")}) VALUES (${placeholders})`,
-        values
-      );
-    } catch (err) {
-      throw new Error(`Could not insert ${resource.type} row ${index + 1}: ${err.message}`);
-    }
-  }
-}
 
 async function main() {
   const argv = process.argv.slice(2);
@@ -211,60 +18,17 @@ async function main() {
     process.exit(0);
   }
 
-  const configPath = path.join(projectRoot, "generated", "config.json");
-  if (!fs.existsSync(configPath)) {
-    console.error("Missing generated/config.json. Run `npm run generate` first.");
-    process.exit(1);
-  }
-
-  const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-  const seedDir = normalizeSeedDir(
-    getCliOption(argv, "--seed-dir"),
-    config.meta?.seedDir || "data/sample-data"
-  );
-  const orderPath = path.join(projectRoot, seedDir, "order.json");
-  if (!fs.existsSync(orderPath)) {
-    console.error(
-      `Missing ${seedDir}/order.json. Run \`npm run generate\` (without --no-seed) first.`
-    );
-    process.exit(1);
-  }
-
-  const order = JSON.parse(fs.readFileSync(orderPath, "utf8"));
-
-  const usersPath = path.join(projectRoot, seedDir, order.usersFile || "users.csv");
-  const userRows = parseCsvFile(usersPath);
-  if (userRows.length === 0) {
-    console.error("No rows in users.csv.");
-    process.exit(1);
-  }
-
-  const seedCol = order.seedUserColumn || "seed_as";
   const db = await initDatabase(projectRoot);
 
   try {
-    await truncateAllTables(db);
-    const { count, seedUser, seedUserId } = await insertUsers(db, userRows, seedCol);
-    console.log(`Seeded ${count} user row(s) -> users`);
+    const result = await seedDatabase(projectRoot, db, {
+      seedDir: getCliOption(argv, "--seed-dir"),
+      truncateExisting: true,
+    });
 
-    for (const entry of order.resources) {
-      const resource = findResource(config, entry.type);
-      if (!resource) {
-        console.warn(`Skipping unknown resource type ${entry.type} in order.json`);
-        continue;
-      }
-      const csvPath = path.join(projectRoot, seedDir, entry.file);
-      if (!fs.existsSync(csvPath)) {
-        console.warn(`Missing ${entry.file}, skipping.`);
-        continue;
-      }
-
-      const rows = parseCsvFile(csvPath);
-      await insertResourceRows(db, resource, rows, seedUserId);
-      console.log(`Seeded ${rows.length} row(s) -> ${resource.path}`);
+    for (const line of result.lines) {
+      console.log(line);
     }
-
-    console.log(`Seed owner: ${seedUser.username}`);
     console.log("Seed complete.");
   } finally {
     await db.close();
