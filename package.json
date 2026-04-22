@@ -13,6 +13,7 @@
     "export:csv": "node src/cli/exportCsv.js",
     "start": "node src/server.js",
     "start:railway": "node src/cli/bootstrap.js && node src/server.js",
+    "start:railway:plants": "DATABASE_PROVIDER=postgres npm run build:example -- --dir plants --yes && DATABASE_PROVIDER=postgres node src/server.js",
     "dev": "nodemon --watch src --watch generated --ext js,json src/server.js"
   },
   "keywords": [],
