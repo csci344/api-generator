@@ -22,18 +22,9 @@ examples/
       order.json
 ```
 
-Use one with:
+From the root of your API Generator Directory, load one of the sample APIS:
 
-```bash
-npm run validate -- --config examples/plants/api.config.yaml
-npm run generate -- --config examples/plants/api.config.yaml --seed-dir examples/plants/seed
-npm run generate:committed -- --config examples/plants/api.config.yaml --seed-dir examples/plants/seed
-npm run seed -- --seed-dir examples/plants/seed
 ```
-
-Railway can activate one by setting:
-
-```env
-ACTIVE_API_CONFIG=examples/plants/api.config.yaml
-ACTIVE_SEED_DIR=examples/plants/seed
+npm run build:example -- --dir sneakers
+npm run build:example -- --dir plants
 ```
