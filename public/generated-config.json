@@ -1,8 +1,8 @@
 {
   "meta": {
-    "configPath": "/Users/svanwart/unca/csci344/spring2026/final-project/api-generator/examples/video-games/api.config.yaml",
-    "generatedAt": "2026-04-27T16:55:16.563Z",
-    "seedDir": "examples/video-games"
+    "configPath": "/Users/svanwart/unca/csci344/spring2026/final-project/api-generator/examples/plants/api.config.yaml",
+    "generatedAt": "2026-04-27T17:09:53.258Z",
+    "seedDir": "examples/plants"
   },
   "userResource": {
     "type": "User",
@@ -19,35 +19,19 @@
           "admin"
         ],
         "relation": null,
-        "query": null
-      },
-      {
-        "name": "profile_pic",
-        "type": "image_url",
-        "storageType": "image_url",
-        "required": false,
-        "relation": null,
-        "query": null
-      },
-      {
-        "name": "display_name",
-        "type": "string",
-        "storageType": "string",
-        "required": false,
-        "relation": null,
         "query": {
-          "param": "display_name",
-          "op": "contains"
+          "param": "role",
+          "op": "eq"
         }
       }
     ]
   },
   "resources": [
     {
-      "type": "Platform",
-      "tableName": "platforms",
-      "fileBase": "platforms",
-      "path": "/api/platforms",
+      "type": "PlantType",
+      "tableName": "plant_types",
+      "fileBase": "plant-types",
+      "path": "/api/plant-types",
       "operations": [
         "list",
         "retrieve",
@@ -70,34 +54,12 @@
           }
         },
         {
-          "name": "manufacturer",
-          "type": "string",
-          "storageType": "string",
-          "required": true,
-          "relation": null,
-          "query": {
-            "param": "manufacturer",
-            "op": "contains"
-          }
-        },
-        {
-          "name": "generation",
-          "type": "string",
-          "storageType": "string",
+          "name": "description",
+          "type": "text",
+          "storageType": "text",
           "required": false,
           "relation": null,
           "query": null
-        },
-        {
-          "name": "release_year",
-          "type": "integer",
-          "storageType": "integer",
-          "required": false,
-          "relation": null,
-          "query": {
-            "param": "release_year",
-            "op": "eq"
-          }
         }
       ],
       "permissions": {
@@ -124,24 +86,6 @@
           "choices": null
         },
         {
-          "param": "manufacturer",
-          "fieldName": "manufacturer",
-          "op": "contains",
-          "type": "string",
-          "storageType": "string",
-          "relation": null,
-          "choices": null
-        },
-        {
-          "param": "release_year",
-          "fieldName": "release_year",
-          "op": "eq",
-          "type": "integer",
-          "storageType": "integer",
-          "relation": null,
-          "choices": null
-        },
-        {
           "param": "owner_id",
           "fieldName": "owner_id",
           "op": "eq",
@@ -152,10 +96,10 @@
       ]
     },
     {
-      "type": "Game",
-      "tableName": "games",
-      "fileBase": "games",
-      "path": "/api/games",
+      "type": "Plant",
+      "tableName": "plants",
+      "fileBase": "plants",
+      "path": "/api/plants",
       "operations": [
         "list",
         "retrieve",
@@ -167,197 +111,61 @@
       "ownershipEnabled": true,
       "fields": [
         {
-          "name": "title",
+          "name": "name",
           "type": "string",
           "storageType": "string",
           "required": true,
           "relation": null,
           "query": {
-            "param": "title",
+            "param": "name",
             "op": "contains"
           }
         },
         {
-          "name": "genre",
-          "type": "string",
-          "storageType": "string",
-          "required": true,
-          "relation": null,
-          "query": {
-            "param": "genre",
-            "op": "contains"
-          }
-        },
-        {
-          "name": "platform",
-          "type": "Platform",
-          "storageType": "integer",
-          "required": true,
-          "relation": {
-            "resourceType": "Platform",
-            "targetField": "id"
-          },
-          "query": {
-            "param": "platform",
-            "op": "eq"
-          }
-        },
-        {
-          "name": "release_date",
-          "type": "date",
-          "storageType": "date",
-          "required": false,
-          "relation": null,
-          "query": {
-            "param": "release_date",
-            "op": "eq"
-          }
-        },
-        {
-          "name": "cover_image",
+          "name": "image_url",
           "type": "image_url",
           "storageType": "image_url",
           "required": false,
           "relation": null,
-          "query": null
+          "query": {
+            "param": "image_url",
+            "op": "contains"
+          }
         },
         {
-          "name": "multiplayer",
-          "type": "boolean",
-          "storageType": "boolean",
+          "name": "species",
+          "type": "PlantType",
+          "storageType": "integer",
           "required": true,
-          "default": false,
-          "relation": null,
+          "relation": {
+            "resourceType": "PlantType",
+            "targetField": "id"
+          },
           "query": {
-            "param": "multiplayer",
+            "param": "species",
             "op": "eq"
           }
         },
         {
-          "name": "summary",
-          "type": "text",
-          "storageType": "text",
+          "name": "planted_year",
+          "type": "integer",
+          "storageType": "integer",
           "required": false,
           "relation": null,
           "query": null
-        }
-      ],
-      "permissions": {
-        "list": "public",
-        "retrieve": "public",
-        "create": "user",
-        "update": [
-          "admin",
-          "owner"
-        ],
-        "delete": [
-          "admin",
-          "owner"
-        ]
-      },
-      "queryFilters": [
-        {
-          "param": "title",
-          "fieldName": "title",
-          "op": "contains",
-          "type": "string",
-          "storageType": "string",
-          "relation": null,
-          "choices": null
         },
         {
-          "param": "genre",
-          "fieldName": "genre",
-          "op": "contains",
-          "type": "string",
-          "storageType": "string",
-          "relation": null,
-          "choices": null
-        },
-        {
-          "param": "platform",
-          "fieldName": "platform",
-          "op": "eq",
-          "type": "Platform",
-          "storageType": "integer",
-          "relation": {
-            "resourceType": "Platform",
-            "targetField": "id"
-          },
-          "choices": null
-        },
-        {
-          "param": "release_date",
-          "fieldName": "release_date",
-          "op": "eq",
-          "type": "date",
-          "storageType": "date",
-          "relation": null,
-          "choices": null
-        },
-        {
-          "param": "multiplayer",
-          "fieldName": "multiplayer",
-          "op": "eq",
-          "type": "boolean",
-          "storageType": "boolean",
-          "relation": null,
-          "choices": null
-        },
-        {
-          "param": "owner_id",
-          "fieldName": "owner_id",
-          "op": "eq",
-          "type": "integer",
-          "storageType": "integer",
-          "relation": null
-        }
-      ]
-    },
-    {
-      "type": "Review",
-      "tableName": "reviews",
-      "fileBase": "reviews",
-      "path": "/api/reviews",
-      "operations": [
-        "list",
-        "retrieve",
-        "create",
-        "update",
-        "delete"
-      ],
-      "shareable": false,
-      "ownershipEnabled": true,
-      "fields": [
-        {
-          "name": "game",
-          "type": "Game",
-          "storageType": "integer",
-          "required": true,
-          "relation": {
-            "resourceType": "Game",
-            "targetField": "id"
-          },
-          "query": {
-            "param": "game",
-            "op": "eq"
-          }
-        },
-        {
-          "name": "rating",
-          "type": "integer",
-          "storageType": "integer",
+          "name": "latitude",
+          "type": "number",
+          "storageType": "number",
           "required": true,
           "relation": null,
-          "query": {
-            "param": "rating",
-            "op": "eq"
-          }
+          "query": null
         },
         {
-          "name": "title",
-          "type": "string",
-          "storageType": "string",
+          "name": "longitude",
+          "type": "number",
+          "storageType": "number",
           "required": true,
           "relation": null,
           "query": null
@@ -369,18 +177,6 @@
           "required": false,
           "relation": null,
           "query": null
-        },
-        {
-          "name": "recommended",
-          "type": "boolean",
-          "storageType": "boolean",
-          "required": true,
-          "default": true,
-          "relation": null,
-          "query": {
-            "param": "recommended",
-            "op": "eq"
-          }
         }
       ],
       "permissions": {
@@ -398,33 +194,33 @@
       },
       "queryFilters": [
         {
-          "param": "game",
-          "fieldName": "game",
+          "param": "name",
+          "fieldName": "name",
+          "op": "contains",
+          "type": "string",
+          "storageType": "string",
+          "relation": null,
+          "choices": null
+        },
+        {
+          "param": "image_url",
+          "fieldName": "image_url",
+          "op": "contains",
+          "type": "image_url",
+          "storageType": "image_url",
+          "relation": null,
+          "choices": null
+        },
+        {
+          "param": "species",
+          "fieldName": "species",
           "op": "eq",
-          "type": "Game",
+          "type": "PlantType",
           "storageType": "integer",
           "relation": {
-            "resourceType": "Game",
+            "resourceType": "PlantType",
             "targetField": "id"
           },
-          "choices": null
-        },
-        {
-          "param": "rating",
-          "fieldName": "rating",
-          "op": "eq",
-          "type": "integer",
-          "storageType": "integer",
-          "relation": null,
-          "choices": null
-        },
-        {
-          "param": "recommended",
-          "fieldName": "recommended",
-          "op": "eq",
-          "type": "boolean",
-          "storageType": "boolean",
-          "relation": null,
           "choices": null
         },
         {

@@ -1,5 +1,5 @@
 id,username,password,role,seed_as
-1,admin,password,user,yes
+1,admin,password,admin,yes
 2,user1,password,user,no
 3,user2,password,user,no
 4,user3,password,user,no

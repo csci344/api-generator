@@ -1,73 +1,16 @@
+# Sample API: campus fruit trees and bushes
+# Copy this file to the project root as api.config.yaml (backup the default first if you want).
+
 resources:
-
-  # Note that User type is a managed resource (with password hashing, etc.). 
-  # These fields will be appended to the user resource
-  # this is a way to extend the user resource with custom fields
-  # without having to create a new resource
-  - type: User
-    fields:
-      - name: role
-        type: string
-        required: true
-        default: user
-        choices: [user, admin]
-      - name: profile_pic
-        type: image_url
-      - name: display_name
-        type: string
-        query: true
-
-  - type: Platform
-    path: /api/platforms
+  - type: PlantType
+    path: /api/plant-types
     operations: [list, retrieve, create, update, delete]
     fields:
       - name: name
         type: string
         required: true
         query: true
-      - name: manufacturer
-        type: string
-        required: true
-        query: true
-      - name: generation
-        type: string
-      - name: release_year
-        type: integer
-        query: true
-    permissions:
-      list: public
-      retrieve: public
-      create: user
-      update: [admin, owner]
-      delete: [admin, owner]
-
-  - type: Game
-    path: /api/games
-    operations: [list, retrieve, create, update, delete]
-    fields:
-      - name: title
-        type: string
-        required: true
-        query: true
-      - name: genre
-        type: string
-        required: true
-        query: true
-      - name: platform
-        type: Platform
-        required: true
-        query: true
-      - name: release_date
-        type: date
-        query: true
-      - name: cover_image
-        type: image_url
-      - name: multiplayer
-        type: boolean
-        required: true
-        default: false
-        query: true
-      - name: summary
+      - name: description
         type: text
     permissions:
       list: public
@@ -76,28 +19,31 @@ resources:
       update: [admin, owner]
       delete: [admin, owner]
 
-  - type: Review
-    path: /api/reviews
+  - type: Plant
+    path: /api/plants
     operations: [list, retrieve, create, update, delete]
     fields:
-      - name: game
-        type: Game
-        required: true
-        query: true
-      - name: rating
-        type: integer
-        required: true
-        query: true
-      - name: title
+      - name: name
         type: string
+        required: true
+        query: true
+      - name: image_url
+        type: image_url
+        query: true
+      - name: species
+        type: PlantType
+        required: true
+        query: true
+      - name: planted_year
+        type: integer
+      - name: latitude
+        type: number
+        required: true
+      - name: longitude
+        type: number
         required: true
       - name: notes
         type: text
-      - name: recommended
-        type: boolean
-        required: true
-        default: true
-        query: true
     permissions:
       list: public
       retrieve: public
