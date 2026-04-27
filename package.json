@@ -11,6 +11,7 @@
     "seed": "node src/cli/seed.js",
     "db:bootstrap": "node src/cli/bootstrap.js",
     "export:csv": "node src/cli/exportCsv.js",
+    "export:example": "node src/cli/exportExample.js",
     "start": "node src/server.js",
     "start:railway": "node src/cli/bootstrap.js && node src/server.js",
     "start:railway:plants": "DATABASE_PROVIDER=postgres npm run build:example -- --dir plants --yes && DATABASE_PROVIDER=postgres node src/server.js",

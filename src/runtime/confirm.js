@@ -27,5 +27,6 @@ function askQuestion(prompt) {
 }
 
 module.exports = {
+  askQuestion,
   confirmDestructiveAction,
 };

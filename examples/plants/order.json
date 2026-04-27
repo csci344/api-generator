@@ -1,7 +1,7 @@
 {
   "apiVersion": "1",
   "baseUrlEnv": "API_BASE",
-  "directory": "data/sample-data",
+  "directory": "examples/plants-new",
   "resources": [
     {
       "type": "PlantType",

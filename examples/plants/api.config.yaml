@@ -16,8 +16,8 @@ resources:
       list: public
       retrieve: public
       create: user
-      update: owner
-      delete: owner
+      update: [admin, owner]
+      delete: [admin, owner]
 
   - type: Plant
     path: /api/plants
@@ -48,5 +48,5 @@ resources:
       list: public
       retrieve: public
       create: user
-      update: owner
-      delete: owner
+      update: [admin, owner]
+      delete: [admin, owner]

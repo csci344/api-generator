@@ -174,16 +174,88 @@
   }
 
   function needsAuthForRead(resource) {
-    return resource.permissions?.list && resource.permissions.list !== "public";
+    return resource.permissions?.list && !hasPermissionTerm(resource.permissions.list, "public");
   }
 
   function needsAuthForWrite(resource, op) {
     const p = resource.permissions?.[op] || "user";
-    return p !== "public";
+    return !hasPermissionTerm(p, "public");
+  }
+
+  function permissionTerms(policy) {
+    return Array.isArray(policy) ? policy : [policy];
+  }
+
+  function hasPermissionTerm(policy, term) {
+    return permissionTerms(policy).includes(term);
+  }
+
+  function policyAllowsCurrentUser(policy) {
+    if (hasPermissionTerm(policy, "public")) {
+      return true;
+    }
+    if (!state.currentUser) {
+      return false;
+    }
+    return permissionTerms(policy).some(
+      (term) => term === "user" || state.currentUser.role === term
+    );
   }
 
   function getAllResources() {
-    return Array.isArray(state.schema?.resources) ? state.schema.resources : [];
+    const resources = Array.isArray(state.schema?.resources) ? [...state.schema.resources] : [];
+    const userResource = state.schema?.userResource;
+    if (userResource && !resources.some((resource) => resource.type === "User")) {
+      resources.push(getManagedUserGridResource(userResource));
+    }
+    return resources;
+  }
+
+  function getManagedUserGridResource(userResource) {
+    const userFields = Array.isArray(userResource?.fields) ? userResource.fields : [];
+    const queryFilters = userFields
+      .filter((field) => field?.query?.param)
+      .map((field) => ({
+        param: field.query.param,
+        fieldName: field.name,
+        op: field.query.op || "eq",
+        type: field.type,
+        storageType: field.storageType || field.type,
+        relation: null,
+        choices: field.choices || null,
+      }));
+    return {
+      type: "User",
+      tableName: "users",
+      fileBase: "users",
+      path: "/auth/users",
+      operations: ["list", "retrieve", "update"],
+      shareable: false,
+      ownershipEnabled: false,
+      fields: [
+        {
+          name: "username",
+          type: "string",
+          storageType: "string",
+          required: true,
+          relation: null,
+          query: { param: "username", op: "contains" },
+        },
+        ...userFields,
+      ],
+      permissions: {
+        list: "user",
+        retrieve: "user",
+        create: "admin",
+        update: "admin",
+        delete: "admin",
+      },
+      queryFilters: [{ param: "username", fieldName: "username", op: "contains", type: "string", storageType: "string", relation: null, choices: null }, ...queryFilters],
+    };
+  }
+
+  function getResourceByType(resourceType) {
+    return getAllResources().find((resource) => resource.type === resourceType) || null;
   }
 
   /** Scalar storage for validation and editors (relation fields store ids as integers). */
@@ -209,6 +281,59 @@
     );
   }
 
+  function isManagedUserResource(resource) {
+    return resource?.type === "User";
+  }
+
+  function currentUserRole() {
+    return String(state.currentUser?.role || "")
+      .trim()
+      .toLowerCase();
+  }
+
+  function currentUsername() {
+    return String(state.currentUser?.username || "")
+      .trim()
+      .toLowerCase();
+  }
+
+  function currentUserIsAdmin() {
+    return currentUserRole() === "admin" || currentUsername() === "admin";
+  }
+
+  function isCurrentUsersManagedUserRow(rowData) {
+    if (!state.currentUser || !rowData) {
+      return false;
+    }
+    return (
+      Number(rowData.id) === Number(state.currentUser.id) ||
+      String(rowData.username || "").trim().toLowerCase() === currentUsername()
+    );
+  }
+
+  function isPasswordField(fieldName) {
+    const normalized = String(fieldName || "").toLowerCase();
+    return normalized === "password" || normalized === "password_hash";
+  }
+
+  function isReadOnlyManagedUserField(resource, fieldName) {
+    if (!isManagedUserResource(resource)) {
+      return false;
+    }
+    return String(fieldName || "").toLowerCase() === "username" || isPasswordField(fieldName);
+  }
+
+  function canEditManagedUserField(resource, fieldName) {
+    if (!isManagedUserResource(resource)) {
+      return true;
+    }
+    const normalized = String(fieldName || "").toLowerCase();
+    if (normalized === "role") {
+      return currentUserIsAdmin();
+    }
+    return !isReadOnlyManagedUserField(resource, fieldName);
+  }
+
   function canMutateRow(resource, rowData, operation) {
     if (!resource || !rowData) {
       return false;
@@ -216,25 +341,27 @@
     if (rowData._pending) {
       return true;
     }
+    if (isManagedUserResource(resource) && operation === "update") {
+      return currentUserIsAdmin() || isCurrentUsersManagedUserRow(rowData);
+    }
 
     const policy =
       resource.permissions?.[operation] ||
       (operation === "update" || operation === "delete" ? "owner" : "user");
-    switch (policy) {
-      case "public":
-        return true;
-      case "user":
-        return Boolean(state.currentUser);
-      case "owner":
-        return isRowOwnedByCurrentUser(rowData);
-      case "owner_or_shared":
-        return (
-          Boolean(state.currentUser) &&
-          (isRowOwnedByCurrentUser(rowData) || resource.permissions?.list === "owner_or_shared")
-        );
-      default:
-        return false;
+    if (policyAllowsCurrentUser(policy)) {
+      return true;
     }
+    if (hasPermissionTerm(policy, "owner") && isRowOwnedByCurrentUser(rowData)) {
+      return true;
+    }
+    if (hasPermissionTerm(policy, "owner_or_shared")) {
+      return (
+        Boolean(state.currentUser) &&
+        (isRowOwnedByCurrentUser(rowData) ||
+          hasPermissionTerm(resource.permissions?.list, "owner_or_shared"))
+      );
+    }
+    return false;
   }
 
   function isRowPatchable(resource, rowData) {
@@ -438,7 +565,8 @@
       jsonWrap.hidden = !showJson;
     }
     if (addRowBtn) {
-      addRowBtn.hidden = !loggedIn || state.viewMode === "json";
+      addRowBtn.hidden =
+        !loggedIn || state.viewMode === "json" || isManagedUserResource(state.resource);
     }
     if (tableViewBtn && codeViewBtn) {
       const json = state.viewMode === "json";
@@ -567,6 +695,18 @@
       select.appendChild(new Option(`Any ${filter.param}`, ""));
       for (const option of state.fkOptions[filter.fieldName] || []) {
         select.appendChild(new Option(option.label, String(option.value)));
+      }
+      select.value = String(currentValue || "");
+      return select;
+    }
+
+    if (Array.isArray(filter.choices) && filter.choices.length > 0) {
+      const select = document.createElement("select");
+      select.id = id;
+      select.dataset.queryParam = filter.param;
+      select.appendChild(new Option(`Any ${filter.param}`, ""));
+      for (const choice of filter.choices) {
+        select.appendChild(new Option(String(choice), String(choice)));
       }
       select.value = String(currentValue || "");
       return select;
@@ -797,7 +937,11 @@
       if (!field.relation?.resourceType) {
         continue;
       }
-      const target = state.schema.resources.find((x) => x.type === field.relation.resourceType);
+      if (field.relation.resourceType === "User") {
+        state.fkOptions[field.name] = state.userOptions;
+        continue;
+      }
+      const target = getResourceByType(field.relation.resourceType);
       if (!target) {
         continue;
       }
@@ -921,7 +1065,9 @@
         title: field.name + (field.required ? " *" : ""),
         headerSort: true,
         editor: pickEditor(field),
-        editable: (cell) => isRowPatchable(resource, cell.getRow().getData()),
+        editable: (cell) =>
+          canEditManagedUserField(resource, field.name) &&
+          isRowPatchable(resource, cell.getRow().getData()),
         formatter: (cell) => formatCell(field, cell.getValue()),
       };
 
@@ -940,9 +1086,18 @@
         col.editorParams = { values: valuesMap };
         col.formatter = (cell) => {
           const v = cell.getValue();
-          const m = opts.find((o) => o.value === v);
+          const m = opts.find((o) => String(o.value) === String(v));
           return m ? m.label : v == null ? "" : String(v);
         };
+      }
+
+      if (!field.relation && Array.isArray(field.choices) && field.choices.length > 0) {
+        const valuesMap = {};
+        for (const choice of field.choices) {
+          valuesMap[choice] = String(choice);
+        }
+        col.editor = "list";
+        col.editorParams = { values: valuesMap };
       }
 
       cols.push(col);
@@ -1105,6 +1260,10 @@
     if (!data._pending) {
       return;
     }
+    if (isManagedUserResource(resource)) {
+      setStatus("Creating User rows is disabled in the editor.", "error");
+      return;
+    }
     if (needsAuthForWrite(resource, "create") && !getToken()) {
       setStatus("Log in to create rows.", "error");
       return;
@@ -1151,6 +1310,14 @@
   async function patchCell(resource, row, fieldName, value) {
     const field = resource.fields.find((f) => f.name === fieldName);
     if (!field) {
+      return;
+    }
+    if (isManagedUserResource(resource) && String(field.name || "").toLowerCase() === "role" && !currentUserIsAdmin()) {
+      setStatus("Only admins can update user roles.", "error");
+      return;
+    }
+    if (isManagedUserResource(resource) && isPasswordField(field.name)) {
+      setStatus("Password fields cannot be edited in the grid.", "error");
       return;
     }
     const rowData = row.getData();
@@ -1216,7 +1383,7 @@
   }
 
   async function loadTable(resourceType) {
-    const resource = state.schema.resources.find((r) => r.type === resourceType);
+    const resource = getResourceByType(resourceType);
     if (!resource) {
       return;
     }
@@ -1229,8 +1396,8 @@
         setStatus("");
       }
 
-      await loadFkOptions(resource);
       await loadUserOptions();
+      await loadFkOptions(resource);
       renderFilterControls(resource);
       const listPath = buildListUrl(resource);
       updateFilterRequestLink(listPath);
@@ -1480,6 +1647,10 @@
         return;
       }
       const r = state.resource;
+      if (isManagedUserResource(r)) {
+        setStatus("Creating User rows is disabled in the editor.", "error");
+        return;
+      }
       if (needsAuthForWrite(r, "create") && !getToken()) {
         setStatus("Log in to add rows.", "error");
         return;

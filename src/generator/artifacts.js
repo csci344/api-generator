@@ -104,7 +104,15 @@ function buildSchemaSql(config, dialect = "sqlite") {
 
       for (const field of resource.fields) {
         const required = field.required ? " NOT NULL" : "";
-        columnLines.push(`${field.name} ${sqlTypeForField(field.storageType, dialect)}${required}`);
+        const defaultSql = Object.prototype.hasOwnProperty.call(field, "default")
+          ? ` DEFAULT ${sqlLiteral(field.default, dialect)}`
+          : "";
+        const choicesSql = field.choices
+          ? ` CHECK (${field.name} IN (${field.choices.map((choice) => sqlLiteral(choice, dialect)).join(", ")}))`
+          : "";
+        columnLines.push(
+          `${field.name} ${sqlTypeForField(field.storageType, dialect)}${required}${defaultSql}${choicesSql}`
+        );
       }
 
       if (resource.ownershipEnabled) {
@@ -114,8 +122,11 @@ function buildSchemaSql(config, dialect = "sqlite") {
       for (const field of resource.fields) {
         if (field.relation) {
           const target = resourceMap.get(field.relation.resourceType);
+          const targetTableName = field.relation.builtIn
+            ? field.relation.tableName
+            : target?.tableName || field.relation.resourceType;
           columnLines.push(
-            `FOREIGN KEY (${field.name}) REFERENCES ${target?.tableName || field.relation.resourceType}(${field.relation.targetField || "id"})`
+            `FOREIGN KEY (${field.name}) REFERENCES ${targetTableName}(${field.relation.targetField || "id"})`
           );
         }
       }
@@ -139,6 +150,7 @@ function buildDocs(config) {
         { method: "POST", path: "/auth/login" },
         { method: "GET", path: "/auth/me" },
         { method: "GET", path: "/auth/users" },
+        { method: "PATCH", path: "/auth/users/:id" },
       ],
     },
     resources: config.resources.map((resource) => {
@@ -198,6 +210,22 @@ function buildDocs(config) {
 
 function buildOpenApi(config) {
   const resourceMap = new Map(config.resources.map((resource) => [resource.type, resource]));
+  const userFields = config.userResource?.fields || [];
+  const registerRequired = [
+    "username",
+    "password",
+    ...userFields
+      .filter((field) => field.required && !Object.prototype.hasOwnProperty.call(field, "default"))
+      .map((field) => field.name),
+  ];
+  const managedUserPatchSchema = {
+    type: "object",
+    minProperties: 1,
+    properties: Object.fromEntries(
+      userFields.map((field) => [field.name, openApiTypeForField(field)])
+    ),
+    additionalProperties: false,
+  };
   const paths = {
     "/auth/register": {
       post: {
@@ -209,10 +237,13 @@ function buildOpenApi(config) {
             "application/json": {
               schema: {
                 type: "object",
-                required: ["username", "password"],
+                required: registerRequired,
                 properties: {
                   username: { type: "string" },
                   password: { type: "string", format: "password" },
+                  ...Object.fromEntries(
+                    userFields.map((field) => [field.name, openApiTypeForField(field)])
+                  ),
                 },
               },
             },
@@ -298,6 +329,35 @@ function buildOpenApi(config) {
         },
       },
     },
+    "/auth/users/{id}": {
+      parameters: [idParameter()],
+      patch: {
+        tags: ["auth"],
+        summary: "Update managed User fields",
+        description:
+          "Allows users to update their own managed User fields, and admins to update any user. Only admins may update `role`. Username and password fields are not editable here.",
+        security: [{ BearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: managedUserPatchSchema,
+            },
+          },
+        },
+        responses: {
+          200: {
+            description: "Updated user",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/CurrentUser" },
+              },
+            },
+          },
+          ...errorResponses(),
+        },
+      },
+    },
   };
 
   const components = {
@@ -307,6 +367,9 @@ function buildOpenApi(config) {
         properties: {
           id: { type: "integer" },
           username: { type: "string" },
+          ...Object.fromEntries(
+            userFields.map((field) => [field.name, openApiTypeForField(field)])
+          ),
         },
       },
       AuthResponse: {
@@ -321,6 +384,9 @@ function buildOpenApi(config) {
         properties: {
           id: { type: "integer" },
           username: { type: "string" },
+          ...Object.fromEntries(
+            userFields.map((field) => [field.name, openApiTypeForField(field)])
+          ),
           created_at: { type: "string" },
         },
       },
@@ -627,7 +693,7 @@ function buildInputSchema(resource, partial) {
     type: "object",
     ...(required.length > 0 ? { required } : {}),
     properties: Object.fromEntries(
-      resource.fields.map((field) => [field.name, openApiTypeForField(field.storageType)])
+      resource.fields.map((field) => [field.name, openApiTypeForField(field)])
     ),
   };
 }
@@ -643,17 +709,24 @@ function buildFullRecordSchema(resourceMap, resource, depth = 0) {
 
   for (const field of resource.fields) {
     if (depth === 0 && field.relation) {
+      if (field.relation.resourceType === "User") {
+        properties[field.name] = {
+          $ref: "#/components/schemas/CurrentUser",
+          nullable: !field.required,
+        };
+        continue;
+      }
       const target = resourceMap.get(field.relation.resourceType);
       properties[field.name] = target
         ? {
             ...buildFullRecordSchema(resourceMap, target, depth + 1),
             nullable: !field.required,
           }
-        : openApiTypeForField(field.storageType);
+        : openApiTypeForField(field);
       continue;
     }
 
-    properties[field.name] = openApiTypeForField(field.storageType);
+    properties[field.name] = openApiTypeForField(field);
   }
 
   return {
@@ -662,8 +735,10 @@ function buildFullRecordSchema(resourceMap, resource, depth = 0) {
   };
 }
 
-function openApiTypeForField(type) {
-  switch (type) {
+function openApiTypeForField(fieldOrType) {
+  const type = typeof fieldOrType === "string" ? fieldOrType : fieldOrType.storageType || fieldOrType.type;
+  const schema = (() => {
+    switch (type) {
     case "integer":
       return { type: "integer" };
     case "number":
@@ -680,7 +755,15 @@ function openApiTypeForField(type) {
     case "string":
     default:
       return { type: "string" };
+    }
+  })();
+  if (typeof fieldOrType === "object" && Array.isArray(fieldOrType.choices)) {
+    schema.enum = fieldOrType.choices;
   }
+  if (typeof fieldOrType === "object" && Object.prototype.hasOwnProperty.call(fieldOrType, "default")) {
+    schema.default = fieldOrType.default;
+  }
+  return schema;
 }
 
 function buildDocsQueryParams(resource) {
@@ -698,12 +781,25 @@ function buildOpenApiQueryParameters(resource) {
       in: "query",
       name: filter.param,
       required: false,
-      schema: openApiTypeForField(filter.storageType),
+      schema: openApiTypeForField(filter),
       description:
         filter.op === "contains"
           ? `Filter ${resource.type} by ${filter.fieldName} using a partial text match.`
           : `Filter ${resource.type} by ${filter.fieldName} using an exact match.`,
     }));
+}
+
+function sqlLiteral(value, dialect = "sqlite") {
+  if (value === null) {
+    return "NULL";
+  }
+  if (typeof value === "boolean") {
+    return dialect === "postgres" ? (value ? "TRUE" : "FALSE") : value ? "1" : "0";
+  }
+  if (typeof value === "number") {
+    return String(value);
+  }
+  return `'${String(value).replaceAll("'", "''")}'`;
 }
 
 function pascalCase(value) {
@@ -715,7 +811,8 @@ function pascalCase(value) {
 }
 
 function securityForPolicy(policy) {
-  return policy === "public" ? {} : { security: [{ BearerAuth: [] }] };
+  const terms = Array.isArray(policy) ? policy : [policy];
+  return terms.includes("public") ? {} : { security: [{ BearerAuth: [] }] };
 }
 
 function idParameter() {

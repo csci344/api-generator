@@ -1,7 +1,7 @@
-username,password,seed_as
-admin,password,yes
-user1,password,no
-user2,password,no
-user3,password,no
-user4,password,no
-user5,password,no
+id,username,password,role,seed_as
+1,admin,password,user,yes
+2,user1,password,user,no
+3,user2,password,user,no
+4,user3,password,user,no
+5,user4,password,user,no
+6,user5,password,user,no

@@ -15,6 +15,18 @@ function main() {
       "Convention: every resource `type` and every non-scalar field `type` (a relation) must be PascalCase, for example Order or Sneaker."
     );
     console.log(`Resources: ${config.resources.length}`);
+    console.log("\nManaged resources:");
+    console.log(
+      `- User fields: ${config.userResource.fields
+        .map((field) => {
+          const choices = field.choices ? ` choices=[${field.choices.join(", ")}]` : "";
+          const def = Object.prototype.hasOwnProperty.call(field, "default")
+            ? ` default=${field.default}`
+            : "";
+          return `${field.name}:${field.type}${choices}${def}`;
+        })
+        .join(", ")}`
+    );
 
     for (const resource of config.resources) {
       console.log(`\n- ${resource.type}`);
@@ -30,7 +42,7 @@ function main() {
           .join(", ")}`
       );
       const authSummary = resource.operations
-        .map((operation) => `${operation}=${resource.permissions[operation]}`)
+        .map((operation) => `${operation}=${formatPolicy(resource.permissions[operation])}`)
         .join(", ");
       console.log(
         `  auth: ${authSummary}`
@@ -62,6 +74,10 @@ function main() {
     console.error(error.message);
     process.exit(1);
   }
+}
+
+function formatPolicy(policy) {
+  return Array.isArray(policy) ? `[${policy.join(", ")}]` : policy;
 }
 
 main();

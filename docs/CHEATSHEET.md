@@ -34,6 +34,13 @@ http://localhost:<port>/api/docs
 - Default seed data: `data/sample-data/`
 - Custom routes: `src/routes/custom.js`
 
+## YAML permissions quick note
+
+`permissions` entries in `api.config.yaml` support either:
+
+- a single string (`create: user`)
+- an array of strings (`create: [service_advisor, technician, admin]`)
+
 ## Example workflow
 
 To load one complete example API and its images:
@@ -45,6 +52,8 @@ npm run build:example -- --dir plants
 That command:
 
 - validates `examples/plants/api.config.yaml`
+- overwrites root `api.config.yaml` from the selected example
+- overwrites `data/sample-data` from the selected example seed files
 - regenerates the backend
 - recreates the database
 - seeds the example CSV data
@@ -78,6 +87,14 @@ Generate without recreating the database:
 npm run generate:committed
 ```
 
+Export the current active profile + live DB rows into a new example:
+
+```bash
+npm run export:example
+npm run export:example -- --dir my-example
+npm run export:example -- --dir my-example --yes
+```
+
 ## Important warnings
 
 - `npm run generate` is destructive. It recreates the database.
@@ -106,5 +123,6 @@ To test protected routes in `/api/docs`:
 - `api.config.yaml` = default API definition
 - `examples/<name>/api.config.yaml` = saved example API definition
 - `npm run generate` = rebuild default backend
-- `npm run build:example -- --dir <name>` = rebuild one full example backend
+- `npm run build:example -- --dir <name>` = switch defaults to that example, then rebuild full backend
+- `npm run export:example` = export active config + current DB data into `examples/<name>`
 - `npm start` / `npm run dev` = run the server

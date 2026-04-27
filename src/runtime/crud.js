@@ -1,14 +1,14 @@
 const express = require("express");
 const { optionalAuth, requireAuth } = require("./auth");
 
-function registerGeneratedResources(app, db, resources) {
+function registerGeneratedResources(app, db, resources, config = {}) {
   const resourceMap = new Map(resources.map((resource) => [resource.type, resource]));
   for (const resource of resources) {
-    app.use(resource.path, buildCrudRouter(db, resource, resourceMap));
+    app.use(resource.path, buildCrudRouter(db, resource, resourceMap, config));
   }
 }
 
-function buildCrudRouter(db, resource, resourceMap) {
+function buildCrudRouter(db, resource, resourceMap, config = {}) {
   const router = express.Router();
 
   if (resource.operations.includes("list")) {
@@ -25,7 +25,7 @@ function buildCrudRouter(db, resource, resourceMap) {
 
       const rows = await listRows(db, resource, req.user, filters);
       const payload = await Promise.all(
-        rows.map((row) => shapeRecord(db, resourceMap, resource, row))
+        rows.map((row) => shapeRecord(db, resourceMap, resource, row, config))
       );
       res.json(payload);
     });
@@ -49,7 +49,7 @@ function buildCrudRouter(db, resource, resourceMap) {
         return;
       }
 
-      res.json(await shapeRecord(db, resourceMap, resource, row));
+      res.json(await shapeRecord(db, resourceMap, resource, row, config));
     });
   }
 
@@ -90,7 +90,7 @@ function buildCrudRouter(db, resource, resourceMap) {
       ]);
 
       try {
-        res.status(201).json(await shapeRecord(db, resourceMap, resource, created));
+        res.status(201).json(await shapeRecord(db, resourceMap, resource, created, config));
       } catch (err) {
         next(err);
       }
@@ -138,7 +138,7 @@ function buildCrudRouter(db, resource, resourceMap) {
         req.params.id,
       ]);
 
-      res.json(await shapeRecord(db, resourceMap, resource, updated));
+      res.json(await shapeRecord(db, resourceMap, resource, updated, config));
     });
   }
 
@@ -302,26 +302,23 @@ async function listRows(db, resource, user, filters = []) {
   const whereClauses = [];
   let joinSql = "";
 
-  switch (resource.permissions.list) {
-    case "public":
-    case "user":
-      break;
-    case "owner":
-      whereClauses.push("t.owner_id = ?");
-      params.push(user.sub);
-      break;
-    case "owner_or_shared":
-      joinSql = `
+  const listPolicy = resource.permissions.list;
+  if (hasPermissionTerm(listPolicy, "public") || policyAllowsAuthenticatedAccess(listPolicy, user)) {
+    // No ownership filter needed.
+  } else if (hasPermissionTerm(listPolicy, "owner_or_shared")) {
+    joinSql = `
         LEFT JOIN shares s
           ON s.resource_type = ?
          AND s.resource_id = t.id
          AND s.shared_with_user_id = ?`;
-      params.push(resource.type, user.sub);
-      whereClauses.push("(t.owner_id = ? OR s.shared_with_user_id = ?)");
-      params.push(user.sub, user.sub);
-      break;
-    default:
-      return [];
+    params.push(resource.type, user.sub);
+    whereClauses.push("(t.owner_id = ? OR s.shared_with_user_id = ?)");
+    params.push(user.sub, user.sub);
+  } else if (hasPermissionTerm(listPolicy, "owner")) {
+    whereClauses.push("t.owner_id = ?");
+    params.push(user.sub);
+  } else {
+    return [];
   }
 
   for (const filter of filters) {
@@ -367,6 +364,15 @@ function buildQueryFilters(db, resource, rawQuery) {
       return {
         filters: [],
         error: `Query parameter \`${filter.param}\` ${parsed.error}`,
+      };
+    }
+    if (
+      filter.choices &&
+      !filter.choices.some((choice) => Object.is(choice, parsed.value))
+    ) {
+      return {
+        filters: [],
+        error: `Query parameter \`${filter.param}\` must be one of: ${filter.choices.join(", ")}.`,
       };
     }
 
@@ -434,47 +440,46 @@ function escapeLikeValue(value) {
 }
 
 async function getAccessibleRow(db, resource, id, user, policy) {
-  switch (policy) {
-    case "public":
-      return (await db.get(`SELECT * FROM ${resource.tableName} WHERE id = ?`, [id])) || null;
-    case "user":
-      return user
-        ? (await db.get(`SELECT * FROM ${resource.tableName} WHERE id = ?`, [id])) || null
-        : false;
-    case "owner":
-      return user
-        ? (await db.get(`SELECT * FROM ${resource.tableName} WHERE id = ? AND owner_id = ?`, [
-            id,
-            user.sub,
-          ])) || null
-        : false;
-    case "owner_or_shared":
-      if (!user) {
-        return false;
-      }
-      return (
-        (await db.get(
-          `SELECT DISTINCT t.*
-           FROM ${resource.tableName} t
-           LEFT JOIN shares s
-             ON s.resource_type = ?
-            AND s.resource_id = t.id
-            AND s.shared_with_user_id = ?
-           WHERE t.id = ? AND (t.owner_id = ? OR s.shared_with_user_id = ?)`,
-          [resource.type, user.sub, id, user.sub, user.sub]
-        )) || null
-      );
-    default:
-      return null;
+  if (hasPermissionTerm(policy, "public")) {
+    return (await db.get(`SELECT * FROM ${resource.tableName} WHERE id = ?`, [id])) || null;
   }
+  if (!user) {
+    return false;
+  }
+  if (policyAllowsAuthenticatedAccess(policy, user)) {
+    return (await db.get(`SELECT * FROM ${resource.tableName} WHERE id = ?`, [id])) || null;
+  }
+  if (hasPermissionTerm(policy, "owner_or_shared")) {
+    return (
+      (await db.get(
+        `SELECT DISTINCT t.*
+         FROM ${resource.tableName} t
+         LEFT JOIN shares s
+           ON s.resource_type = ?
+          AND s.resource_id = t.id
+          AND s.shared_with_user_id = ?
+         WHERE t.id = ? AND (t.owner_id = ? OR s.shared_with_user_id = ?)`,
+        [resource.type, user.sub, id, user.sub, user.sub]
+      )) || null
+    );
+  }
+  if (hasPermissionTerm(policy, "owner")) {
+    return (
+      (await db.get(`SELECT * FROM ${resource.tableName} WHERE id = ? AND owner_id = ?`, [
+        id,
+        user.sub,
+      ])) || null
+    );
+  }
+  return null;
 }
 
-async function shapeRecord(db, resourceMap, resource, record, depth = 0) {
+async function shapeRecord(db, resourceMap, resource, record, config = {}, depth = 0) {
   if (!record) {
     return null;
   }
 
-  const owner = await getOwnerRecord(db, resource, record);
+  const owner = await getOwnerRecord(db, resource, record, config);
   const shaped = coerceRecordValues(db, resource, record);
 
   if (resource.ownershipEnabled) {
@@ -493,13 +498,18 @@ async function shapeRecord(db, resourceMap, resource, record, depth = 0) {
     }
 
     const target = resourceMap.get(field.relation.resourceType);
-    if (!target) {
-      continue;
-    }
-
     const foreignValue = record[field.name];
     if (foreignValue == null) {
       shaped[field.name] = null;
+      continue;
+    }
+
+    if (field.relation.resourceType === "User") {
+      shaped[field.name] = await getUserRecord(db, foreignValue, config);
+      continue;
+    }
+
+    if (!target) {
       continue;
     }
 
@@ -508,21 +518,37 @@ async function shapeRecord(db, resourceMap, resource, record, depth = 0) {
       [foreignValue]
     );
 
-    shaped[field.name] = await shapeRecord(db, resourceMap, target, relatedRecord, depth + 1);
+    shaped[field.name] = await shapeRecord(db, resourceMap, target, relatedRecord, config, depth + 1);
   }
 
   return shaped;
 }
 
-async function getOwnerRecord(db, resource, record) {
+async function getOwnerRecord(db, resource, record, config = {}) {
   if (!resource.ownershipEnabled || record.owner_id == null) {
     return null;
   }
 
-  return (
-    (await db.get("SELECT id, username, created_at FROM users WHERE id = ?", [record.owner_id])) ||
-    null
+  return getUserRecord(db, record.owner_id, config);
+}
+
+async function getUserRecord(db, userId, config = {}) {
+  const fields = config.userResource?.fields || [];
+  const columns = ["id", "username", ...fields.map((field) => field.name), "created_at"];
+  const user = await db.get(
+    `SELECT ${columns.map(quoteIdentifier).join(", ")} FROM users WHERE id = ?`,
+    [userId]
   );
+  if (!user) {
+    return null;
+  }
+  const shaped = { ...user };
+  for (const field of fields) {
+    if (Object.prototype.hasOwnProperty.call(shaped, field.name)) {
+      shaped[field.name] = db.coerceRowValue(field.storageType || field.type, shaped[field.name]);
+    }
+  }
+  return shaped;
 }
 
 function coerceRecordValues(db, resource, record) {
@@ -550,13 +576,23 @@ function validateBody(resource, body, partial) {
   for (const field of resource.fields) {
     const value = body[field.name];
     if (!partial && field.required && (value === undefined || value === null || value === "")) {
-      return `Field \`${field.name}\` is required.`;
+      if (!Object.prototype.hasOwnProperty.call(field, "default")) {
+        return `Field \`${field.name}\` is required.`;
+      }
     }
     if (value !== undefined && value !== null && !isValidType(field.storageType, value)) {
       if (field.relation) {
         return `Field \`${field.name}\` must be an integer id for \`${field.type}\`.`;
       }
       return `Field \`${field.name}\` must be of type \`${field.type}\`.`;
+    }
+    if (
+      value !== undefined &&
+      value !== null &&
+      field.choices &&
+      !field.choices.some((choice) => Object.is(choice, value))
+    ) {
+      return `Field \`${field.name}\` must be one of: ${field.choices.join(", ")}.`;
     }
   }
 
@@ -568,6 +604,8 @@ function sanitizeBody(db, resource, body, partial = false) {
   for (const field of resource.fields) {
     if (Object.prototype.hasOwnProperty.call(body, field.name)) {
       clean[field.name] = normalizeValue(db, field.storageType, body[field.name]);
+    } else if (!partial && Object.prototype.hasOwnProperty.call(field, "default")) {
+      clean[field.name] = normalizeValue(db, field.storageType, field.default);
     } else if (!partial) {
       clean[field.name] = null;
     }
@@ -605,21 +643,60 @@ function isValidType(type, value) {
 }
 
 function requirePolicyMiddleware(policy) {
-  if (policy === "public") {
+  if (hasPermissionTerm(policy, "public")) {
     return (_req, _res, next) => next();
   }
-  return requireAuth;
+  return (req, res, next) => {
+    requireAuth(req, res, () => {
+      if (
+        !policyAllowsAuthenticatedAccess(policy, req.user) &&
+        !hasPermissionTerm(policy, "owner") &&
+        !hasPermissionTerm(policy, "owner_or_shared")
+      ) {
+        res.status(403).json({ error: "Permission denied." });
+        return;
+      }
+      next();
+    });
+  };
 }
 
 function ensureCollectionPolicy(policy, req, res) {
-  if (policy === "public") {
+  if (hasPermissionTerm(policy, "public")) {
     return true;
   }
   if (!req.user) {
     res.status(401).json({ error: "Authentication required." });
     return false;
   }
+  if (
+    !policyAllowsAuthenticatedAccess(policy, req.user) &&
+    !hasPermissionTerm(policy, "owner") &&
+    !hasPermissionTerm(policy, "owner_or_shared")
+  ) {
+    res.status(403).json({ error: "Permission denied." });
+    return false;
+  }
   return true;
+}
+
+function permissionTerms(policy) {
+  return Array.isArray(policy) ? policy : [policy];
+}
+
+function hasPermissionTerm(policy, term) {
+  return permissionTerms(policy).includes(term);
+}
+
+function policyAllowsAuthenticatedAccess(policy, user) {
+  if (!user) {
+    return false;
+  }
+  return permissionTerms(policy).some((term) => term === "user" || user.role === term);
+}
+
+function quoteIdentifier(value) {
+  return `"${String(value).replaceAll('"', '""')}"`;
 }
 
 module.exports = {

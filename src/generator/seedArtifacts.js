@@ -31,6 +31,9 @@ function dependencyOrder(resources) {
 }
 
 function sampleValueForField(field, rowIndex) {
+  if (Array.isArray(field.choices) && field.choices.length > 0) {
+    return String(field.choices[rowIndex % field.choices.length]);
+  }
   const n = rowIndex + 1;
   switch (field.type) {
     case "image_url":
@@ -63,28 +66,53 @@ function escapeCsvCell(value) {
 }
 
 function buildSampleCsv(resource, rowsPerResource) {
-  const headers = resource.fields.map((f) => f.name);
+  const headers = [
+    "id",
+    ...(resource.ownershipEnabled ? ["owner_id"] : []),
+    ...resource.fields.map((f) => f.name),
+  ];
   const lines = [headers.join(",")];
   for (let i = 0; i < rowsPerResource; i += 1) {
-    const cells = resource.fields.map((field) => {
-      if (field.relation) {
-        return String(i + 1);
-      }
-      return escapeCsvCell(sampleValueForField(field, i));
-    });
+    const cells = [
+      String(i + 1),
+      ...(resource.ownershipEnabled ? ["1"] : []),
+      ...resource.fields.map((field) => {
+        if (field.relation) {
+          return String(i + 1);
+        }
+        return escapeCsvCell(sampleValueForField(field, i));
+      }),
+    ];
     lines.push(cells.join(","));
   }
   return `${lines.join("\n")}\n`;
 }
 
-const USERS_CSV = [
-  "username,password,seed_as",
-  "user1,password,no",
-  "user2,password,no",
-  "user3,password,no",
-  "user4,password,no",
-  "",
-].join("\n");
+function buildUsersCsv(userResource = { fields: [] }) {
+  const fields = userResource.fields || [];
+  const headers = ["id", "username", "password", ...fields.map((field) => field.name), "seed_as"];
+  const rows = [
+    ["1", "admin", "password", ...fields.map((field) => userSampleValue(field, 0, true)), "yes"],
+    ["2", "user1", "password", ...fields.map((field) => userSampleValue(field, 1, false)), "no"],
+    ["3", "user2", "password", ...fields.map((field) => userSampleValue(field, 2, false)), "no"],
+    ["4", "user3", "password", ...fields.map((field) => userSampleValue(field, 3, false)), "no"],
+    ["5", "user4", "password", ...fields.map((field) => userSampleValue(field, 4, false)), "no"],
+  ];
+  return `${[headers.join(","), ...rows.map((row) => row.map(escapeCsvCell).join(",")), ""].join("\n")}`;
+}
+
+function userSampleValue(field, rowIndex, isAdmin) {
+  if (field.name === "role") {
+    return isAdmin ? "admin" : field.default || "user";
+  }
+  if (field.name === "email") {
+    return isAdmin ? "admin@example.com" : `user${rowIndex}@example.com`;
+  }
+  if (field.name === "display_name") {
+    return isAdmin ? "Admin User" : `User ${rowIndex}`;
+  }
+  return sampleValueForField(field, rowIndex);
+}
 
 function archiveSeedFilesBeforeRewrite(seedDir) {
   if (!fs.existsSync(seedDir)) {
@@ -165,7 +193,7 @@ function writeSeedArtifacts(projectRoot, config, options = {}) {
   archiveSeedFilesBeforeRewrite(seedDir);
   fs.mkdirSync(seedDir, { recursive: true });
 
-  fs.writeFileSync(path.join(seedDir, "users.csv"), USERS_CSV);
+  fs.writeFileSync(path.join(seedDir, "users.csv"), buildUsersCsv(config.userResource));
   fs.writeFileSync(path.join(seedDir, "README.txt"), buildSeedReadme(seedDirName));
 
   const ordered = dependencyOrder(config.resources);
@@ -191,7 +219,11 @@ function writeSeedArtifacts(projectRoot, config, options = {}) {
     const body =
       rowsPerResource > 0
         ? buildSampleCsv(resource, rowsPerResource)
-        : `${resource.fields.map((f) => f.name).join(",")}\n`;
+        : `${[
+            "id",
+            ...(resource.ownershipEnabled ? ["owner_id"] : []),
+            ...resource.fields.map((f) => f.name),
+          ].join(",")}\n`;
     fs.writeFileSync(csvPath, body);
   }
 }

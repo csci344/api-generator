@@ -19,6 +19,9 @@ async function main() {
   const exampleDir = path.join(projectRoot, "examples", exampleDirName);
   const configPath = path.join(exampleDir, "api.config.yaml");
   const seedDir = resolveExampleSeedDir(projectRoot, exampleDirName);
+  const sourceSeedDir = path.join(projectRoot, seedDir);
+  const rootConfigPath = path.join(projectRoot, "api.config.yaml");
+  const rootSeedDir = path.join(projectRoot, "data", "sample-data");
   const imagesSourceDir = path.join(exampleDir, "images");
   const imagesTargetDir = path.join(projectRoot, "public", "student", "images", exampleDirName);
 
@@ -37,6 +40,9 @@ async function main() {
     console.log("Build example cancelled.");
     process.exit(0);
   }
+
+  overwriteProjectDefaults(configPath, sourceSeedDir, rootConfigPath, rootSeedDir);
+  console.log("Updated root api.config.yaml and data/sample-data from the selected example.");
 
   const config = loadApiConfig(configPath);
 
@@ -72,6 +78,12 @@ async function main() {
   } else {
     console.log(`No images directory found in examples/${exampleDirName}; skipped image sync.`);
   }
+}
+
+function overwriteProjectDefaults(sourceConfigPath, sourceSeedDir, rootConfigPath, rootSeedDir) {
+  fs.copyFileSync(sourceConfigPath, rootConfigPath);
+  removeDirectoryIfExists(rootSeedDir);
+  copyDirectory(sourceSeedDir, rootSeedDir);
 }
 
 function removeDirectoryIfExists(targetDir) {

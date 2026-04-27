@@ -24,7 +24,8 @@ async function recreateDatabase(projectRoot) {
   }
 
   const db = await initDatabase(projectRoot);
-  await createDefaultUsers(db);
+  const generatedConfig = loadGeneratedConfig(projectRoot);
+  await createDefaultUsers(db, generatedConfig?.userResource);
   await db.close();
 
   return provider === "postgres"
@@ -103,6 +104,9 @@ function buildPostgresSslConfig() {
 async function initializeCommonSchema(projectRoot, db) {
   await db.exec(builtInSchemaForDialect(db.dialect));
 
+  const generatedConfig = loadGeneratedConfig(projectRoot);
+  await applyManagedUserSchema(db, generatedConfig?.userResource);
+
   const generatedSchema = loadGeneratedSchema(projectRoot, db.dialect);
   if (generatedSchema) {
     await db.exec(generatedSchema);
@@ -153,6 +157,14 @@ function builtInSchemaForDialect(dialect) {
       FOREIGN KEY (shared_by_user_id) REFERENCES users(id) ON DELETE CASCADE
     );
   `;
+}
+
+function loadGeneratedConfig(projectRoot) {
+  const configPath = path.join(projectRoot, "generated", "config.json");
+  if (!fs.existsSync(configPath)) {
+    return null;
+  }
+  return JSON.parse(fs.readFileSync(configPath, "utf8"));
 }
 
 function loadGeneratedSchema(projectRoot, dialect) {
@@ -219,7 +231,7 @@ async function getManagedTableNames(projectRoot) {
   return [...new Set(tableNames)];
 }
 
-async function createDefaultUsers(db) {
+async function createDefaultUsers(db, userResource = null) {
   const existingUsernames = new Set(
     (await db.all("SELECT username FROM users")).map((row) => row.username)
   );
@@ -229,11 +241,93 @@ async function createDefaultUsers(db) {
       continue;
     }
 
-    await db.run(
-      "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-      [user.username, bcrypt.hashSync(user.password, 10)]
+    const userFields = userResource?.fields || [];
+    const fieldNames = ["username", "password_hash", ...userFields.map((field) => field.name)];
+    const placeholders = fieldNames.map(() => "?").join(", ");
+    const values = [
+      user.username,
+      bcrypt.hashSync(user.password, 10),
+      ...userFields.map((field) =>
+        normalizeManagedUserValue(
+          db,
+          field,
+          field.name === "role" && user.username === "admin" ? "admin" : field.default ?? null
+        )
+      ),
+    ];
+
+    await db.run(`INSERT INTO users (${fieldNames.join(", ")}) VALUES (${placeholders})`, values);
+  }
+}
+
+async function applyManagedUserSchema(db, userResource = null) {
+  const fields = userResource?.fields || [];
+  if (fields.length === 0) {
+    return;
+  }
+  const existingColumns = new Set(await db.listColumns("users"));
+  for (const field of fields) {
+    if (existingColumns.has(field.name)) {
+      continue;
+    }
+    const required =
+      field.required && Object.prototype.hasOwnProperty.call(field, "default") ? " NOT NULL" : "";
+    const defaultSql = Object.prototype.hasOwnProperty.call(field, "default")
+      ? ` DEFAULT ${sqlLiteral(field.default, db.dialect)}`
+      : "";
+    const choicesSql = field.choices
+      ? ` CHECK (${quoteIdentifier(field.name)} IN (${field.choices
+          .map((choice) => sqlLiteral(choice, db.dialect))
+          .join(", ")}))`
+      : "";
+    await db.exec(
+      `ALTER TABLE users ADD COLUMN ${quoteIdentifier(field.name)} ${sqlTypeForField(
+        field.storageType,
+        db.dialect
+      )}${required}${defaultSql}${choicesSql}`
     );
   }
+}
+
+function normalizeManagedUserValue(db, field, value) {
+  if (value == null) {
+    return null;
+  }
+  if ((field.storageType || field.type) === "boolean") {
+    return db.normalizeBoolean(value);
+  }
+  return value;
+}
+
+function sqlTypeForField(type, dialect = "sqlite") {
+  switch (type) {
+    case "integer":
+      return dialect === "postgres" ? "BIGINT" : "INTEGER";
+    case "number":
+      return dialect === "postgres" ? "DOUBLE PRECISION" : "REAL";
+    case "boolean":
+      return dialect === "postgres" ? "BOOLEAN" : "INTEGER";
+    case "date":
+    case "datetime":
+    case "image_url":
+    case "string":
+    case "text":
+    default:
+      return "TEXT";
+  }
+}
+
+function sqlLiteral(value, dialect = "sqlite") {
+  if (value === null) {
+    return "NULL";
+  }
+  if (typeof value === "boolean") {
+    return dialect === "postgres" ? (value ? "TRUE" : "FALSE") : value ? "1" : "0";
+  }
+  if (typeof value === "number") {
+    return String(value);
+  }
+  return `'${String(value).replaceAll("'", "''")}'`;
 }
 
 function createSqliteAdapter(sqlite, dbPath) {
@@ -274,6 +368,11 @@ function createSqliteAdapter(sqlite, dbPath) {
            ORDER BY name`
         )
         .all();
+      return rows.map((row) => row.name);
+    },
+
+    async listColumns(tableName) {
+      const rows = sqlite.prepare(`PRAGMA table_info(${quoteIdentifier(tableName)})`).all();
       return rows.map((row) => row.name);
     },
 
@@ -363,6 +462,18 @@ function createPostgresAdapter(pool) {
          ORDER BY table_name`
       );
       return result.rows.map((row) => row.table_name);
+    },
+
+    async listColumns(tableName) {
+      const result = await pool.query(
+        `SELECT column_name
+         FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = $1
+         ORDER BY ordinal_position`,
+        [tableName]
+      );
+      return result.rows.map((row) => row.column_name);
     },
 
     async clearTables(tableNames) {

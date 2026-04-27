@@ -53,6 +53,9 @@ function parseCsvFile(filePath) {
 }
 
 function coerceValue(db, field, raw) {
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
   const s = String(raw).trim();
   if (s === "") {
     return undefined;
@@ -95,10 +98,8 @@ function coerceValue(db, field, raw) {
 function rowToBody(db, resource, row) {
   const body = {};
   for (const field of resource.fields) {
-    if (!Object.prototype.hasOwnProperty.call(row, field.name)) {
-      continue;
-    }
-    const raw = row[field.name];
+    const hasValue = Object.prototype.hasOwnProperty.call(row, field.name);
+    const raw = hasValue ? row[field.name] : field.default;
     const value = coerceValue(db, field, raw);
     if (value === undefined) {
       if (field.required) {
@@ -106,9 +107,16 @@ function rowToBody(db, resource, row) {
       }
       continue;
     }
+    if (field.choices && !field.choices.some((choice) => valuesEqual(choice, value))) {
+      throw new Error(`Invalid choice for ${resource.type}.${field.name}: ${raw}`);
+    }
     body[field.name] = value;
   }
   return body;
+}
+
+function valuesEqual(a, b) {
+  return String(a) === String(b);
 }
 
 function findResource(config, resourceType) {
@@ -120,19 +128,31 @@ async function truncateAllTables(db) {
   await db.clearTables(tables);
 }
 
-async function insertUsers(db, userRows, seedCol) {
+async function insertUsers(db, userRows, seedCol, userResource = { type: "User", fields: [] }) {
   const adminPasswordHash = await bcrypt.hash("password", 10);
+  const userFields = userResource.fields || [];
+  const userFieldNames = userFields.map((field) => field.name);
+  const insertColumns = ["username", "password_hash", ...userFieldNames];
+  const insertColumnsWithId = ["id", ...insertColumns];
+  const insertPlaceholders = insertColumns.map(() => "?").join(", ");
+  const insertPlaceholdersWithId = insertColumnsWithId.map(() => "?").join(", ");
+  const defaultValues = defaultManagedUserValues(db, userResource, "user");
+  const adminValues = defaultManagedUserValues(db, userResource, "admin");
   const preparedRows = [];
   for (const row of userRows) {
+    const id = parseOptionalId(row.id, `user ${row.username || "user"}`);
     const username = String(row.username || "").trim();
     const password = String(row.password || "");
     if (!username || !password) {
       throw new Error("Each row in users.csv must include username and password.");
     }
+    const userValues = rowToBody(db, userResource, row);
     preparedRows.push({
+      id,
       username,
       passwordHash: await bcrypt.hash(password, 10),
       isSeedUser: String(row[seedCol] || "").trim().toLowerCase() === "yes",
+      userValues,
     });
   }
 
@@ -140,16 +160,38 @@ async function insertUsers(db, userRows, seedCol) {
 
   const existingAdmin = await db.get("SELECT id FROM users WHERE username = ?", ["admin"]);
   if (existingAdmin) {
-    await db.run("UPDATE users SET password_hash = ? WHERE id = ?", [
-      adminPasswordHash,
+    const requestedAdmin = preparedRows.find((row) => row.username === "admin");
+    const requestedAdminValues = requestedAdmin?.userValues || adminValues;
+    const requestedAdminHash = requestedAdmin?.passwordHash || adminPasswordHash;
+    const assignments = ["password_hash = ?", ...userFieldNames.map((name) => `${name} = ?`)];
+    await db.run(`UPDATE users SET ${assignments.join(", ")} WHERE id = ?`, [
+      requestedAdminHash,
+      ...userFieldNames.map((name) => requestedAdminValues[name] ?? null),
       existingAdmin.id,
     ]);
     userIdByUsername.set("admin", Number(existingAdmin.id));
   } else {
-    const adminResult = await db.run(
-      "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-      ["admin", adminPasswordHash]
-    );
+    const requestedAdmin = preparedRows.find((row) => row.username === "admin");
+    const requestedAdminValues = requestedAdmin?.userValues || adminValues;
+    const adminResult = requestedAdmin
+      ? requestedAdmin.id == null
+        ? await db.run(
+            `INSERT INTO users (${insertColumns.join(", ")}) VALUES (${insertPlaceholders})`,
+            ["admin", adminPasswordHash, ...userFieldNames.map((name) => requestedAdminValues[name] ?? null)]
+          )
+        : await db.run(
+            `INSERT INTO users (${insertColumnsWithId.join(", ")}) VALUES (${insertPlaceholdersWithId})`,
+            [
+              requestedAdmin.id,
+              "admin",
+              adminPasswordHash,
+              ...userFieldNames.map((name) => requestedAdminValues[name] ?? null),
+            ]
+          )
+      : await db.run(
+          `INSERT INTO users (${insertColumns.join(", ")}) VALUES (${insertPlaceholders})`,
+          ["admin", adminPasswordHash, ...userFieldNames.map((name) => adminValues[name] ?? null)]
+        );
     userIdByUsername.set("admin", Number(adminResult.lastInsertRowid));
   }
 
@@ -159,18 +201,35 @@ async function insertUsers(db, userRows, seedCol) {
     }
     const existing = await db.get("SELECT id FROM users WHERE username = ?", [row.username]);
     if (existing) {
-      await db.run("UPDATE users SET password_hash = ? WHERE id = ?", [
+      const assignments = ["password_hash = ?", ...userFieldNames.map((name) => `${name} = ?`)];
+      await db.run(`UPDATE users SET ${assignments.join(", ")} WHERE id = ?`, [
         row.passwordHash,
+        ...userFieldNames.map((name) => row.userValues[name] ?? null),
         existing.id,
       ]);
       userIdByUsername.set(row.username, Number(existing.id));
       continue;
     }
 
-    const result = await db.run(
-      "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-      [row.username, row.passwordHash]
-    );
+    const result =
+      row.id == null
+        ? await db.run(
+            `INSERT INTO users (${insertColumns.join(", ")}) VALUES (${insertPlaceholders})`,
+            [
+              row.username,
+              row.passwordHash,
+              ...userFieldNames.map((name) => row.userValues[name] ?? defaultValues[name] ?? null),
+            ]
+          )
+        : await db.run(
+            `INSERT INTO users (${insertColumnsWithId.join(", ")}) VALUES (${insertPlaceholdersWithId})`,
+            [
+              row.id,
+              row.username,
+              row.passwordHash,
+              ...userFieldNames.map((name) => row.userValues[name] ?? defaultValues[name] ?? null),
+            ]
+          );
     userIdByUsername.set(row.username, Number(result.lastInsertRowid));
   }
 
@@ -183,17 +242,47 @@ async function insertUsers(db, userRows, seedCol) {
   };
 }
 
+function defaultManagedUserValues(db, userResource, roleValue) {
+  const values = {};
+  for (const field of userResource.fields || []) {
+    const value = field.name === "role" ? roleValue : field.default;
+    if (value !== undefined) {
+      values[field.name] = coerceValue(db, field, value);
+    }
+  }
+  return values;
+}
+
+function parseOptionalId(raw, label) {
+  const text = String(raw ?? "").trim();
+  if (!text) {
+    return null;
+  }
+  if (!/^\d+$/.test(text)) {
+    throw new Error(`Invalid id for ${label}: ${raw}`);
+  }
+  return Number(text);
+}
+
 async function insertResourceRows(db, resource, rows, ownerId) {
   const fieldNames = resource.fields.map((field) => field.name);
-  const insertFieldNames = resource.ownershipEnabled ? ["owner_id", ...fieldNames] : fieldNames;
-  const placeholders = insertFieldNames.map(() => "?").join(", ");
 
   for (const [index, row] of rows.entries()) {
     const body = rowToBody(db, resource, row);
+    const explicitId = parseOptionalId(row.id, `${resource.type} row ${index + 1}`);
+    const insertFieldNames = [
+      ...(explicitId == null ? [] : ["id"]),
+      ...(resource.ownershipEnabled ? ["owner_id"] : []),
+      ...fieldNames,
+    ];
+    const placeholders = insertFieldNames.map(() => "?").join(", ");
     const values = fieldNames.map((fieldName) => body[fieldName] ?? null);
 
     if (resource.ownershipEnabled) {
-      values.unshift(ownerId);
+      values.unshift(parseOptionalId(row.owner_id, `${resource.type} row ${index + 1} owner_id`) ?? ownerId);
+    }
+    if (explicitId != null) {
+      values.unshift(explicitId);
     }
 
     try {
@@ -242,7 +331,12 @@ async function seedDatabase(projectRoot, db, options = {}) {
   }
 
   const seedCol = order.seedUserColumn || "seed_as";
-  const { count, seedUser, seedUserId } = await insertUsers(db, userRows, seedCol);
+  const { count, seedUser, seedUserId } = await insertUsers(
+    db,
+    userRows,
+    seedCol,
+    config.userResource
+  );
   const summary = [`Seeded ${count} user row(s) -> users`];
 
   for (const entry of order.resources) {

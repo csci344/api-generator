@@ -98,9 +98,9 @@ async function main() {
     })
   );
 
-  registerAuthRoutes(app, db);
+  registerAuthRoutes(app, db, generatedConfig);
   registerCustomRoutes(app, db);
-  registerGeneratedResources(app, db, generatedResources);
+  registerGeneratedResources(app, db, generatedResources, generatedConfig);
 
   app.use((err, _req, res, _next) => {
     console.error(err);
